@@ -8,6 +8,7 @@ import 'package:miogra_admin/controller/Business&sellerCon.dart';
 
 import '../../Models/product.dart';
 import '../../controller/productController.dart';
+import 'AddBusness.dart';
 import 'business_dropdown.dart';
 
 
@@ -29,11 +30,15 @@ class RequestBusinessGrid extends StatelessWidget {
                 // Search Bar
                 Center(child: _buildSearchBar()),
                 SizedBox(height: 50),
-                    Text(
-                      "+ Add Business",
-                      style: TextStyle(color: Colors.green, fontSize: 20, fontWeight: FontWeight.bold),
+                    GestureDetector(
+                      onTap: () => Get.to(() => AddNewBusiness()),
 
-                ),
+                      child: Text(
+                        "+ Add Business",
+                        style: TextStyle(color: Colors.green, fontSize: 20, fontWeight: FontWeight.bold),
+
+                                      ),
+                    ),
                 SizedBox(height: 30),
                 Obx(() => Container(
                     child:  GridView.builder(

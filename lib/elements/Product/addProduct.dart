@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'dart:io';
 
 import '../../controller/EditProductController.dart';
 import '../../controller/shopController.dart';
 import '../sidebar.dart';
-import 'dart:io';
-
-
-
 
 class AddNewProductPage extends StatelessWidget {
   final EditProductController controller = Get.put(EditProductController());
@@ -23,9 +21,7 @@ class AddNewProductPage extends StatelessWidget {
 
           return Row(
             children: [
-              if (!isMobile)
-                Sidebar(),
-
+              if (!isMobile) Sidebar(),
               Expanded(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.all(24),
@@ -57,25 +53,13 @@ class AddNewProductPage extends StatelessWidget {
 
                       SizedBox(height: 30),
 
-                      // Product Image Upload
+                      // ✅ FIXED: Web-Compatible Image Upload
                       Obx(() {
                         return Stack(
                           children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              child: controller.selectedImage.value == null
-                                  ? Container(
-                                width: double.infinity,
-                                height: 287,
-                                color: Colors.grey[300],
-                                child: Icon(Icons.image, size: 100, color: Colors.grey[600]),
-                              )
-                                  : Image.file(
-                                File(controller.selectedImage.value!.path), // ✅ Fixed here
-                                width: double.infinity,
-                                height: 287,
-                                fit: BoxFit.cover,
-                              ),
+                              child: _buildImageWidget(),
                             ),
                             Positioned(
                               bottom: 10,
@@ -91,7 +75,6 @@ class AddNewProductPage extends StatelessWidget {
                           ],
                         );
                       }),
-
 
                       SizedBox(height: 20),
 
@@ -121,25 +104,25 @@ class AddNewProductPage extends StatelessWidget {
 
                       SizedBox(height: 20),
 
-                      // Food Type Section
-                      _buildSectionTitle("mainCategory"),
+                      // ✅ FIXED: Main Category Section (Fixed callbacks)
+                      _buildSectionTitle("Main Category"),
                       Obx(() => Row(
                         children: [
                           _buildRadioTileWithIcon("Food", Icons.fastfood_outlined, Colors.yellow, controller.mainCategory.value,
-                                  (value) => controller.foodType.value = value!),
+                                  (value) => controller.mainCategory.value = value!),
                           _buildRadioTileWithIcon("FreshCut", Icons.set_meal, Colors.blueGrey, controller.mainCategory.value,
-                                  (value) => controller.foodType.value = value!),
+                                  (value) => controller.mainCategory.value = value!),
                           _buildRadioTileWithIcon("Daily Mio", Icons.shopping_bag, Colors.red, controller.mainCategory.value,
-                                  (value) => controller.foodType.value = value!),
-                          _buildRadioTileWithIcon("Pharmacy ", Icons. vaccines, Colors. lightBlueAccent , controller.mainCategory.value,
-                                  (value) => controller.foodType.value = value!),
+                                  (value) => controller.mainCategory.value = value!),
+                          _buildRadioTileWithIcon("Pharmacy", Icons.vaccines, Colors.lightBlueAccent, controller.mainCategory.value,
+                                  (value) => controller.mainCategory.value = value!),
                         ],
                       )),
-                      _buildSectionTitle("selectedSubcategory"),
+
+                      SizedBox(height: 20),
+                      _buildSectionTitle("Sub Category"),
                       SizedBox(height: 12),
                       _buildDropdownField("Select Subcategory", controller.selectedSubcategory, controller.subcategories),
-
-
 
                       SizedBox(height: 20),
 
@@ -164,13 +147,13 @@ class AddNewProductPage extends StatelessWidget {
                       SizedBox(height: 12),
                       _buildQuantityInput("Quantity", controller.productQty),
                       SizedBox(height: 12),
-                      _buildQuantityInput("sellerId", controller.sellerId),
+                      _buildQuantityInput("Seller ID", controller.sellerId),
                       SizedBox(height: 12),
-                      _buildQuantityInput("businessId", controller.businesId),
+                      _buildQuantityInput("Business ID", controller.businesId),
                       SizedBox(height: 12),
-                      _buildQuantityInput("shopId", controller.shopId),
+                      _buildQuantityInput("Shop ID", controller.shopId),
                       SizedBox(height: 12),
-                      _buildQuantityInput("shopName", controller.shopName),
+                      _buildQuantityInput("Shop Name", controller.shopName),
                       SizedBox(height: 30),
 
                       // Submit Button
@@ -186,7 +169,6 @@ class AddNewProductPage extends StatelessWidget {
 
                             await controller.addProductToFirestore();
                           },
-
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.purple[900],
                             padding: EdgeInsets.symmetric(vertical: 16),
@@ -203,6 +185,112 @@ class AddNewProductPage extends StatelessWidget {
         },
       ),
     );
+  }
+
+  // ✅ WEB-COMPATIBLE IMAGE WIDGET
+  Widget _buildImageWidget() {
+    if (controller.selectedImage.value == null) {
+      return Container(
+        width: double.infinity,
+        height: 287,
+        color: Colors.grey[300],
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.image, size: 100, color: Colors.grey[600]),
+            SizedBox(height: 8),
+            Text(
+              "Tap camera icon to add image",
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (kIsWeb) {
+      // ✅ For web platform, use Image.network with blob URL
+      return Image.network(
+        controller.selectedImage.value!.path,
+        width: double.infinity,
+        height: 287,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: double.infinity,
+            height: 287,
+            color: Colors.grey[300],
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Colors.purple[900]),
+                  SizedBox(height: 8),
+                  Text("Loading image...", style: TextStyle(color: Colors.grey[600])),
+                ],
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print("Web image loading error: $error");
+          return Container(
+            width: double.infinity,
+            height: 287,
+            color: Colors.grey[300],
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, size: 50, color: Colors.red),
+                SizedBox(height: 8),
+                Text(
+                  "Error loading image",
+                  style: TextStyle(color: Colors.red),
+                ),
+                Text(
+                  "Path: ${controller.selectedImage.value?.path}",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } else {
+      // ✅ For mobile platforms, use Image.file
+      return Image.file(
+        File(controller.selectedImage.value!.path),
+        width: double.infinity,
+        height: 287,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print("Mobile image loading error: $error");
+          return Container(
+            width: double.infinity,
+            height: 287,
+            color: Colors.grey[300],
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, size: 50, color: Colors.red),
+                SizedBox(height: 8),
+                Text(
+                  "Error loading image",
+                  style: TextStyle(color: Colors.red),
+                ),
+                Text(
+                  "Path: ${controller.selectedImage.value?.path}",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
   }
 
   // Section Title
@@ -249,8 +337,6 @@ class AddNewProductPage extends StatelessWidget {
     );
   }
 
-
-
   Widget _buildPriceInput(String label, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,11 +362,10 @@ class AddNewProductPage extends StatelessWidget {
       decoration: InputDecoration(labelText: label, border: OutlineInputBorder()),
     );
   }
-  //
+
   Widget _buildQuantityInput(String label, TextEditingController controller) {
     return _buildTextField(label, controller);
   }
-
 
   Widget _buildDropdownField(String label, RxString selectedValue, List<String> items) {
     return Obx(() => Container(
@@ -302,10 +387,11 @@ class AddNewProductPage extends StatelessWidget {
           );
         }).toList(),
         onChanged: (value) {
-          selectedValue.value = value!;
+          if (value != null) {
+            selectedValue.value = value;
+          }
         },
       ),
     ));
   }
-
 }

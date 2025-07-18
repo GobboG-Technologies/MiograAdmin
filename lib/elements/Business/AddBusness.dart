@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart'; // Add this for kIsWeb
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -38,16 +40,47 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
     'Bank Passbook': null,
   };
 
+  // ✅ Add this for storing file data on web
+  final Map<String, Uint8List?> _uploadedDocBytes = {
+    'Aadhar': null,
+    'Pan': null,
+    'GST File': null,
+    'Profile': null,
+    'Bank Passbook': null,
+  };
+
   Future<void> _pickImageFromFiles() async {
     try {
-      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1800,
+        maxHeight: 1800,
+        imageQuality: 85,
+      );
+
       if (pickedFile != null) {
+        print("Picked image path: ${pickedFile.path}");
         setState(() {
           _imageFile = pickedFile;
         });
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Image selected successfully"),
+            backgroundColor: kSuccessColor,
+            duration: Duration(seconds: 1),
+          ),
+        );
       }
     } catch (e) {
-      debugPrint("Image picker error: $e");
+      print("Image picker error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error picking image: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -56,17 +89,56 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
+        allowMultiple: false,
       );
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path;
-        debugPrint("Picked $docType file: $filePath");
-        setState(() {
-          _uploadedDocs[docType] = true;
-          _uploadedDocPaths[docType] = filePath;
-        });
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        print("Picked $docType file: ${file.name}");
+
+        if (kIsWeb) {
+          // ✅ For web, store bytes
+          final bytes = file.bytes;
+          if (bytes != null) {
+            setState(() {
+              _uploadedDocs[docType] = true;
+              _uploadedDocPaths[docType] = file.name; // Store filename for display
+              _uploadedDocBytes[docType] = bytes; // Store bytes for upload
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("$docType uploaded successfully"),
+                backgroundColor: kSuccessColor,
+              ),
+            );
+          }
+        } else {
+          // ✅ For mobile, store path
+          final filePath = file.path;
+          if (filePath != null) {
+            setState(() {
+              _uploadedDocs[docType] = true;
+              _uploadedDocPaths[docType] = filePath;
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("$docType uploaded successfully"),
+                backgroundColor: kSuccessColor,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
-      debugPrint("PDF file picker error: $e");
+      print("PDF file picker error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error picking $docType: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -74,7 +146,15 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
     setState(() {
       _uploadedDocs[docType] = false;
       _uploadedDocPaths[docType] = null;
+      _uploadedDocBytes[docType] = null;
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("$docType removed"),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   @override
@@ -193,6 +273,7 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
     );
   }
 
+  // ✅ FIXED: Web-compatible image picker
   Widget _buildImagePicker() {
     return GestureDetector(
       onTap: _pickImageFromFiles,
@@ -202,12 +283,6 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
         decoration: BoxDecoration(
           border: Border.all(color: Colors.grey.shade300),
           borderRadius: BorderRadius.circular(10),
-          image: _imageFile == null
-              ? null
-              : DecorationImage(
-            image: FileImage(File(_imageFile!.path)),
-            fit: BoxFit.cover,
-          ),
         ),
         alignment: Alignment.center,
         child: _imageFile == null
@@ -219,21 +294,91 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
             Text("Tap to add image", style: TextStyle(color: Colors.grey[600]))
           ],
         )
-            : Align(
-          alignment: Alignment.bottomRight,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: CircleAvatar(
-              backgroundColor: Colors.white.withOpacity(0.6),
-              radius: 20,
-              child: const Icon(Icons.camera_alt, color: kPrimaryColor),
+            : Stack(
+          children: [
+            // ✅ Web-compatible image display
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _buildImageWidget(),
+              ),
             ),
-          ),
+            // Camera icon overlay
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: CircleAvatar(
+                backgroundColor: Colors.white.withOpacity(0.8),
+                radius: 20,
+                child: const Icon(Icons.camera_alt, color: kPrimaryColor),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
+  // ✅ Platform-specific image widget
+  Widget _buildImageWidget() {
+    if (_imageFile == null) {
+      return Container();
+    }
+
+    if (kIsWeb) {
+      // ✅ For web, use Image.network with blob URL
+      return Image.network(
+        _imageFile!.path,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return const Center(
+            child: CircularProgressIndicator(color: kPrimaryColor),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print("Web image error: $error");
+          return Container(
+            color: Colors.grey[300],
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, color: Colors.red, size: 40),
+                Text("Error loading image", style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          );
+        },
+      );
+    } else {
+      // ✅ For mobile, use Image.file
+      return Image.file(
+        File(_imageFile!.path),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (context, error, stackTrace) {
+          print("Mobile image error: $error");
+          return Container(
+            color: Colors.grey[300],
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, color: Colors.red, size: 40),
+                Text("Error loading image", style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  // ✅ IMPROVED: PDF upload button with better feedback
   Widget _buildPdfUploadButton(String label, IconData icon) {
     final isUploaded = _uploadedDocs[label] == true;
     final hasFile = _uploadedDocPaths[label] != null;
@@ -244,19 +389,41 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
           child: OutlinedButton.icon(
             onPressed: () => _pickPdfFile(label),
             icon: isUploaded
-                ? Icon(Icons.check_circle, color: kSuccessColor)
+                ? const Icon(Icons.check_circle, color: kSuccessColor)
                 : Icon(icon, color: kPrimaryColorMedium),
-            label: Text(
-              label,
-              style: TextStyle(
-                color: isUploaded ? kSuccessColor : kPrimaryColorMedium,
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-              ),
+            label: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: isUploaded ? kSuccessColor : kPrimaryColorMedium,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (hasFile) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "(${_getFileName(_uploadedDocPaths[label]!)})",
+                      style: const TextStyle(
+                        color: kTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
             ),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: isUploaded ? kSuccessColor : kPrimaryColorMedium, width: 1),
+              side: BorderSide(
+                  color: isUploaded ? kSuccessColor : kPrimaryColorMedium,
+                  width: 1
+              ),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
           ),
         ),
@@ -265,14 +432,34 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
             onPressed: () => _deletePdfFile(label),
+            tooltip: "Remove $label",
           ),
         ],
       ],
     );
   }
 
+  // ✅ Helper method to extract filename
+  String _getFileName(String path) {
+    if (kIsWeb) {
+      // For web, the path might be just the filename
+      return path.split('/').last;
+    } else {
+      // For mobile, extract filename from full path
+      return path.split('/').last;
+    }
+  }
+
   Widget _buildSectionHeader(String title) {
-    return Text(title, style: const TextStyle(color: kPrimaryColor, fontSize: 20, fontFamily: 'Poppins', fontWeight: FontWeight.w500));
+    return Text(
+        title,
+        style: const TextStyle(
+            color: kPrimaryColor,
+            fontSize: 20,
+            fontFamily: 'Poppins',
+            fontWeight: FontWeight.w500
+        )
+    );
   }
 
   Widget _buildTextField({required String hintText}) {
@@ -281,10 +468,18 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
       child: TextFormField(
         decoration: InputDecoration(
           hintText: hintText,
-          hintStyle: const TextStyle(color: kTextColor, fontSize: 15, fontFamily: 'Poppins', fontWeight: FontWeight.w400),
+          hintStyle: const TextStyle(
+              color: kTextColor,
+              fontSize: 15,
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.w400
+          ),
           filled: true,
           fillColor: kPrimaryColorTransparent,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none
+          ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
       ),
@@ -299,7 +494,18 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
         side: const BorderSide(color: kPrimaryColorMedium),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
-      child: Align(alignment: Alignment.centerLeft, child: Text(label, style: const TextStyle(color: kTextColor, fontSize: 15, fontFamily: 'Poppins', fontWeight: FontWeight.w400))),
+      child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+              label,
+              style: const TextStyle(
+                  color: kTextColor,
+                  fontSize: 15,
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w400
+              )
+          )
+      ),
     );
   }
 
@@ -307,8 +513,19 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
     return OutlinedButton.icon(
       onPressed: () {},
       icon: const Icon(Icons.location_on, color: kPrimaryColor),
-      label: const Text('Pick Exact Location', style: TextStyle(color: kPrimaryColor, fontSize: 15, fontWeight: FontWeight.w500)),
-      style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), side: const BorderSide(color: kPrimaryColor), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+      label: const Text(
+          'Pick Exact Location',
+          style: TextStyle(
+              color: kPrimaryColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w500
+          )
+      ),
+      style: OutlinedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 48),
+          side: const BorderSide(color: kPrimaryColor),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+      ),
     );
   }
 
@@ -316,11 +533,29 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: kTextColor, fontSize: 15, fontWeight: FontWeight.w500)),
+        Text(
+            label,
+            style: const TextStyle(
+                color: kTextColor,
+                fontSize: 15,
+                fontWeight: FontWeight.w500
+            )
+        ),
         TextButton(
           onPressed: () {},
-          style: TextButton.styleFrom(backgroundColor: kPrimaryColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
-          child: Text(time, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+          style: TextButton.styleFrom(
+              backgroundColor: kPrimaryColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+          ),
+          child: Text(
+              time,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500
+              )
+          ),
         ),
       ],
     );
@@ -336,8 +571,18 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
               height: 48,
               child: OutlinedButton(
                 onPressed: () {},
-                style: OutlinedButton.styleFrom(side: const BorderSide(width: 2, color: kAccentColor), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                child: const Text('Close', style: TextStyle(color: kAccentColor, fontSize: 17, fontWeight: FontWeight.w500)),
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(width: 2, color: kAccentColor),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                ),
+                child: const Text(
+                    'Close',
+                    style: TextStyle(
+                        color: kAccentColor,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500
+                    )
+                ),
               ),
             ),
           ),
@@ -347,8 +592,18 @@ class AddNewBusinessDesktopState extends State<AddNewBusiness> {
               height: 48,
               child: ElevatedButton(
                 onPressed: () {},
-                style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColorMedium, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                child: const Text('+ Add', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryColorMedium,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                ),
+                child: const Text(
+                    '+ Add',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w500
+                    )
+                ),
               ),
             ),
           ),
