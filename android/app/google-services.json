@@ -1,0 +1,105 @@
+{
+  "project_info": {
+    "project_number": "605102255517",
+    "project_id": "migora-f8f57",
+    "storage_bucket": "migora-f8f57.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605102255517:android:024fb0552242bd14401374",
+        "android_client_info": {
+          "package_name": "com.gobbog.MigoraBusiness"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpJJQe8khemeQSoyxKC8Mq1ubxFlWcpEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605102255517:android:323186a7586f0602401374",
+        "android_client_info": {
+          "package_name": "com.gobbog.migorabusiness"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpJJQe8khemeQSoyxKC8Mq1ubxFlWcpEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605102255517:android:233a8e90afed8128401374",
+        "android_client_info": {
+          "package_name": "com.gobbog.migorauserapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpJJQe8khemeQSoyxKC8Mq1ubxFlWcpEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605102255517:android:888cd7725a77d74f401374",
+        "android_client_info": {
+          "package_name": "com.gobbog.miogra_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpJJQe8khemeQSoyxKC8Mq1ubxFlWcpEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:605102255517:android:ac9ac50d5613fabd401374",
+        "android_client_info": {
+          "package_name": "com.gobbogtechnologies.miograuser"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpJJQe8khemeQSoyxKC8Mq1ubxFlWcpEU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
