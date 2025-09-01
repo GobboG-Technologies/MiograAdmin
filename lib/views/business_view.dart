@@ -39,7 +39,7 @@ class BusinessPage extends StatelessWidget {
             // Content Based on Selection
             Obx(() {
               return SizedBox(
-                height: MediaQuery.of(context).size.height * 0.7, // Adjust height to prevent overflow
+                height: MediaQuery.of(context).size.height * 0.7,
                 child: controller.selectedTab.value == 0
                     ? BusinessGrid()
                     : RequestBusinessGrid(),

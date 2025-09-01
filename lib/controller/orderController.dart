@@ -1,147 +1,161 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:get/get.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class OrderController extends GetxController {
-  var selectedTab = 0.obs;
-  var orders = <Map<String, dynamic>>[].obs; // All orders for zone
-  var searchQuery = ''.obs;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Zone data
-  List<int> zonePincodes = [];
-  List<LatLng> zonePoints = [];
+  var orders = <Map<String, dynamic>>[].obs;
+  var isLoading = true.obs;
+  var searchQuery = ''.obs;
+  var hasPermission = true.obs;
+
+  var selectedTab = 0.obs;
+
+  var zones = <Map<String, dynamic>>[].obs;
+  var selectedZoneId = Rxn<String>();
 
   @override
   void onInit() {
     super.onInit();
-    fetchOrdersByZone(); // Fetch orders by zone on init
+    _loadAdminSessionAndFetchData();
+    debounce(searchQuery, (_) => update(), time: const Duration(milliseconds: 300));
   }
+
   List<Map<String, dynamic>> get filteredOrders {
     if (searchQuery.value.isEmpty) return orders;
-
-    // Separate matching and non-matching orders
     final lowerQuery = searchQuery.value.toLowerCase();
-    final matching = orders.where((order) {
+    return orders.where((order) {
       final docId = order["docId"]?.toString().toLowerCase() ?? "";
       return docId.contains(lowerQuery);
     }).toList();
-
-    final nonMatching = orders.where((order) {
-      final docId = order["docId"]?.toString().toLowerCase() ?? "";
-      return !docId.contains(lowerQuery);
-    }).toList();
-
-    // Merge: matching first, then rest
-    return [...matching, ...nonMatching];
   }
 
-
-  // Example: Call this after fetching orders from Firestore
-  void setOrders(List<Map<String, dynamic>> newOrders) {
-    orders.assignAll(newOrders);
-  }
-  /// Fetch all orders filtered by zoneId only (no status filter)
-  Future<void> fetchOrdersByZone() async {
+  Future<void> _loadAdminSessionAndFetchData() async {
     try {
-      // 1. Get zone data from SharedPreferences
+      isLoading.value = true;
       final prefs = await SharedPreferences.getInstance();
-      final zoneJson = prefs.getString('zoneData');
+      final sessionJson = prefs.getString('adminSession');
 
-      if (zoneJson == null) {
-        print("⚠️ No zone data found in SharedPreferences");
+      if (sessionJson == null) {
+        print("⚠️ No admin session found");
+        isLoading.value = false;
         return;
       }
 
-      final zoneData = jsonDecode(zoneJson);
-      final zoneId = zoneData['zoneId'];
+      final sessionData = jsonDecode(sessionJson);
+      final List<dynamic> zonesData = sessionData['zonesData'] ?? [];
 
-      if (zoneId == null || zoneId.isEmpty) {
-        print("⚠️ Zone ID missing in zoneData");
+      if (zonesData.isNotEmpty) {
+        zones.assignAll(zonesData.cast<Map<String, dynamic>>());
+        final primaryZoneId = sessionData['primaryZoneId'];
+        if (primaryZoneId != null && zones.any((z) => z['zoneId'] == primaryZoneId)) {
+          selectedZoneId.value = primaryZoneId;
+        } else {
+          selectedZoneId.value = zones.first['zoneId'];
+        }
+
+        if (selectedZoneId.value != null) {
+          await fetchOrdersByZone(selectedZoneId.value!);
+        }
+      } else {
+        print("⚠️ No zones found in admin session data");
+        isLoading.value = false;
+      }
+    } catch (e) {
+      print("❌ Error loading admin session: $e");
+      Get.snackbar("Error", "Could not load admin session data.");
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> onZoneChanged(String? newZoneId) async {
+    if (newZoneId == null || newZoneId == selectedZoneId.value) return;
+    selectedZoneId.value = newZoneId;
+    orders.clear();
+    searchQuery.value = '';
+    await fetchOrdersByZone(newZoneId);
+  }
+
+  Future<void> fetchOrdersByZone(String zoneId) async {
+    try {
+      isLoading.value = true;
+      print("🔍 Checking zone permission for zoneId: '$zoneId'");
+
+      final zoneDoc = await _firestore.collection('zone').doc(zoneId).get();
+
+      if (!zoneDoc.exists) {
+        print("⚠️ Zone not found for ID: $zoneId");
+        isLoading.value = false;
         return;
       }
 
-      print("🔍 Fetching 'requested' orders for zoneId: $zoneId");
+      final zoneData = zoneDoc.data() ?? {};
+      print("📄 Zone data: $zoneData");
 
-      // 2. Query Firestore: orders where zoneId matches AND status is 'requested'
+      final adminPermissions = zoneData['adminPermissions'];
+      if (adminPermissions == null || adminPermissions is! Map) {
+        print("⚠️ adminPermissions is missing or not a map.");
+        isLoading.value = false;
+        return;
+      }
+
+      bool orderListEnabled = false;
+      (adminPermissions as Map<String, dynamic>).forEach((adminId, perms) {
+        if (perms is Map && perms['orderList'] == true) {
+          orderListEnabled = true;
+        }
+      });
+
+      if (!orderListEnabled) {
+        print("🚫 No admin has orderList enabled for zone: $zoneId");
+        orders.clear();
+        hasPermission.value = false;
+        isLoading.value = false;
+        return;
+      } else {
+        hasPermission.value = true;
+      }
+
+      // ✅ Fetch only orders for zoneId AND deliveryStatus = "pending"
       final snapshot = await _firestore
           .collection('orders')
-          .where('zoneId', isEqualTo: zoneId)
-          .where('status', isEqualTo: 'Requested') // <-- Filter by status
+          .where('zoneIds', arrayContains: zoneId)
+          .where('deliveryStatus', isEqualTo: "pending")
           .get();
 
-      print("🔥 Requested orders fetched for zoneId $zoneId: ${snapshot.docs.length}");
+      final fetchedOrders = snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['docId'] = doc.id;
+        return data;
+      }).toList();
 
-      // 3. Map documents to list and update observable
-      orders.assignAll(
-        snapshot.docs.map((doc) {
-          final data = doc.data();
-          data['docId'] = doc.id;
-          return data;
-        }).toList(),
-      );
-
-      print("✅ Orders list updated (requested only): ${orders.length}");
+      orders.assignAll(fetchedOrders);
+      print("✅ ${fetchedOrders.length} pending orders loaded for zone $zoneId.");
     } catch (e) {
-      print("❌ Error fetching requested orders by zone: $e");
+      print("❌ Error fetching orders: $e");
+      isLoading.value = false;
+    } finally {
+      isLoading.value = false;
     }
   }
 
 
-  /// Extract products from current orders
-  List<Map<String, dynamic>> getAllProductsFromOrders() {
-    final List<Map<String, dynamic>> allProducts = [];
-
-    for (var order in orders) {
-      final orderId = order["id"] ?? order["docId"] ?? "";
-
-      final String shopName = (order["items"] as List).isNotEmpty
-          ? order["items"][0]['shopName'] ?? "Unknown Shop"
-          : "Unknown Shop";
-
-      if (order["items"] is List) {
-        for (var item in order["items"]) {
-          if (item is Map<String, dynamic>) {
-            allProducts.add({
-              "orderId": orderId,
-              "shopName": shopName,
-              "name": item["productName"] ?? item["name"] ?? "",
-              "id": item["id"] ?? "",
-              "qty": item["count"]?.toString() ??
-                  item["productQty"]?.toString() ??
-                  "1",
-              "price": item["productPrice"]?.toString() ?? "0",
-              "yourPrice": item["yourprice"]?.toString() ?? "",
-              "option": (item["foodType"]?.toLowerCase() == "veg")
-                  ? "veg"
-                  : "nonveg",
-              "image": item["imageUrl"] ?? "",
-              "category": item["mainCategory"] ?? "",
-              "subCategory": item["subCategory"] ?? "",
-              "status": order["status"] ?? "",
-            });
-          }
-        }
-      }
-    }
-
-    return allProducts;
-  }
-
-  /// Fetch product image URL from Firebase Storage
-  Future<String> getImageUrl(String fileName) async {
+  /// 🚨 Cancel order by updating deliveryStatus
+  Future<void> cancelOrder(String docId) async {
     try {
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child('product_images/krishnamayam/$fileName');
-
-      return await ref.getDownloadURL();
+      await _firestore.collection("orders").doc(docId).update({
+        "deliveryStatus": "CancelbyAdmin",
+      });
+      Get.snackbar("Success", "Order cancelled and set to pending.");
+      // refresh
+      if (selectedZoneId.value != null) {
+        await fetchOrdersByZone(selectedZoneId.value!);
+      }
     } catch (e) {
-      print('🔥 Error getting image URL: $e');
-      return '';
+      print("❌ Error cancelling order: $e");
+      Get.snackbar("Error", "Failed to cancel order.");
     }
   }
 }

@@ -21,6 +21,24 @@ class CustomerCardPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                Obx(() {
+                  if (controller.zones.isEmpty) {
+                    return const Text("No Zones Available");
+                  }
+                  return DropdownButton<String>(
+                    value: controller.selectedZoneId.value,
+                    hint: const Text("Select Zone"),
+                    items: controller.zones.map((zone) {
+                      return DropdownMenuItem<String>(
+                        value: zone['zoneId'] as String,
+                        child: Text(zone['zoneName'] as String),
+                      );
+                    }).toList(),
+                      onChanged: (newValue) {
+                        controller.onZoneChanged(newValue);
+                      }
+                  );
+                }),
                 Center(child: _buildSearchBar(controller)),
                 SizedBox(height: 50),
 

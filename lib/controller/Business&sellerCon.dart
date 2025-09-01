@@ -12,6 +12,8 @@ class BusinessSellerController extends GetxController {
   var businesses = <Business>[].obs;
   var sellers = <Seller>[].obs;
   var selectedTab = 0.obs;
+  var zones = <Map<String, dynamic>>[].obs;   // All zones for this admin
+  var selectedZoneId = RxnString();           // Currently selected zone
 
   List<int> zonePincodes = [];
   List<LatLng> zonePoints = [];
@@ -22,71 +24,43 @@ class BusinessSellerController extends GetxController {
     loadZoneDataAndShops();
   }
 
-  /// Load zone data (coordinates + pincodes) from SharedPreferences
   Future<void> loadZoneDataAndShops() async {
     final prefs = await SharedPreferences.getInstance();
-    final zoneJson = prefs.getString('zoneData');
+    final sessionJson = prefs.getString('adminSession');
 
-    if (zoneJson != null) {
-      final zoneData = jsonDecode(zoneJson);
+    if (sessionJson != null) {
+      final sessionData = jsonDecode(sessionJson);
+      final List<dynamic> zonesData = sessionData['zonesData'] ?? [];
 
-      // Convert pincodes
-      final rawPincodes = zoneData['pincodes'] ?? [];
-      zonePincodes = rawPincodes.map<int>((e) {
-        if (e is int) return e;
-        if (e is String) return int.tryParse(e) ?? 0;
-        return 0;
-      }).toList();
+      zones.assignAll(zonesData.cast<Map<String, dynamic>>());
 
-      // Convert zonePoints (deliveryZoneCoordinates) to LatLng list
-      zonePoints = (zoneData['zonePoints'] as List)
-          .map((p) => LatLng(
-        (p['latitude'] ?? 0).toDouble(),
-        (p['longitude'] ?? 0).toDouble(),
-      ))
-          .toList();
+      final primaryZoneId = sessionData['primaryZoneId'];
+      if (primaryZoneId != null &&
+          zones.any((z) => z['zoneId'] == primaryZoneId)) {
+        selectedZoneId.value = primaryZoneId;
+      } else if (zones.isNotEmpty) {
+        selectedZoneId.value = zones.first['zoneId'];
+      }
 
-      await fetchShopsByZone();
+      if (selectedZoneId.value != null) {
+        await fetchShopsByZone(selectedZoneId.value!);
+      }
     }
   }
 
-  /// Fetch shops filtered by zone/pincode and load their images
-  /// Fetch shops directly by zoneId (faster)
-  Future<void> fetchShopsByZone() async {
-    final prefs = await SharedPreferences.getInstance();
-    final zoneJson = prefs.getString('zoneData');
-
-    if (zoneJson == null) {
-      print("⚠️ No zone data found in SharedPreferences");
-      return;
-    }
-
-    final zoneData = jsonDecode(zoneJson);
-    final zoneId = zoneData['zoneId']; // Get zoneId
-
-    if (zoneId == null || zoneId.isEmpty) {
-      print("⚠️ Zone ID missing in zoneData");
-      return;
-    }
-
+  Future<void> fetchShopsByZone(String zoneId) async {
     final firestore = FirebaseFirestore.instance;
 
-    // Query shops where zoneId matches AND status is accepted
     final snapshot = await firestore
         .collection('Shops')
-        .where('zoneId', isEqualTo: zoneId)
+        .where('deliveryZoneId', isEqualTo: zoneId)
         .where('status', isEqualTo: 'accepted')
         .get();
 
-    print("🔥 Shops fetched for zoneId $zoneId: ${snapshot.docs.length}");
-
-    // Clear previous businesses
     businesses.clear();
 
-    // Convert each shop into Business model
     for (var doc in snapshot.docs) {
       final data = doc.data();
-
       final profileImageUrl = data['profileImage'] ?? '';
 
       businesses.add(
@@ -97,35 +71,30 @@ class BusinessSellerController extends GetxController {
           location: data['location']?['placeName'] ?? '',
           imageUrl: profileImageUrl.isNotEmpty
               ? profileImageUrl
-              : 'assets/images/img9.png', // fallback
+              : 'assets/images/img9.png',
           isLive: true,
           isApproved: false,
           isRejected: false,
         ),
       );
     }
-
-    print("✅ Businesses list updated (zone filter): ${businesses.length}");
   }
 
-
+  Future<void> onZoneChanged(String? newZoneId) async {
+    if (newZoneId == null || newZoneId == selectedZoneId.value) return;
+    selectedZoneId.value = newZoneId;
+    businesses.clear();
+    await fetchShopsByZone(newZoneId);
+  }
 
   /// Fetch all image URLs for all email folders under Business/
   Future<Map<String, List<String>>> fetchAllBusinessImages() async {
     final Map<String, List<String>> allImages = {};
 
     try {
-      // Root folder
       final businessRef = FirebaseStorage.instance.ref().child('Business');
       final emailFolders = await businessRef.listAll();
 
-      print("✅ Email folders found in Storage: ${emailFolders.prefixes.length}");
-      print("Folders in Firebase Storage (Business/):");
-      for (var folder in emailFolders.prefixes) {
-        print(" - ${folder.name}");
-      }
-
-      // Loop each email folder
       for (var emailFolder in emailFolders.prefixes) {
         final shopsRef = emailFolder.child('Shops');
         final shopFiles = await shopsRef.listAll();
@@ -133,18 +102,11 @@ class BusinessSellerController extends GetxController {
         final urlsForThisEmail = <String>[];
         for (var file in shopFiles.items) {
           final name = file.name.toLowerCase();
-
           if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')) {
             final url = await file.getDownloadURL();
-
-            // 🔥 Debug print for each fetched URL
-            print("Fetched URL for ${emailFolder.name}: $url");
-
             urlsForThisEmail.add(url);
           }
         }
-
-        // Map: email (folder name) → URLs
         allImages[emailFolder.name] = urlsForThisEmail;
       }
 
@@ -154,12 +116,6 @@ class BusinessSellerController extends GetxController {
       return {};
     }
   }
-
-
-
-
-
-
 
   bool _rayCastIntersect(LatLng point, LatLng vertA, LatLng vertB) {
     final px = point.latitude;

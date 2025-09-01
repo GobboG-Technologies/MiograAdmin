@@ -14,8 +14,14 @@ class UpdateProductPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final UpdateProductController controller = Get.put(UpdateProductController(productId));
-    final ShopController controllerS = Get.put(ShopController());
+    // -------------------  THE FIX IS HERE -------------------
+    // Use Get.find() to retrieve the already-injected controller
+    // instead of trying to create a new one with Get.put().
+    final UpdateProductController controller = Get.find<UpdateProductController>();
+    // ---------------------------------------------------------
+
+    // Use Get.find() for an existing global controller
+    final ShopController shopController = Get.find<ShopController>();
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -31,7 +37,10 @@ class UpdateProductPage extends StatelessWidget {
                   padding: EdgeInsets.all(24),
                   physics: AlwaysScrollableScrollPhysics(),
                   child: Obx(() {
-                    // Wait until data is fetched (optional: you can have a loading bool)
+                    if (shopController.shops.isEmpty && controller.isLoading.value) { // Added isLoading to prevent UI flicker
+                      // Optional: show a loading indicator while shops are being fetched and product data is loading
+                      return Center(child: CircularProgressIndicator());
+                    }
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -117,7 +126,7 @@ class UpdateProductPage extends StatelessWidget {
 
                         SizedBox(height: 20),
 
-                        // Main Category Section - Horizontal scroll added here
+                        // Main Category Section
                         _buildSectionTitle("Main Category"),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
@@ -139,6 +148,12 @@ class UpdateProductPage extends StatelessWidget {
                         _buildSectionTitle("Sub Category"),
                         SizedBox(height: 12),
                         _buildDropdownField("Select Subcategory", controller.selectedSubcategory, controller.subcategories),
+
+                        SizedBox(height: 20),
+
+                        _buildSectionTitle("Shop"),
+                        SizedBox(height: 12),
+                        _buildShopDropdown("Select Shop", controller.selectedShopId, shopController.shops),
 
                         SizedBox(height: 20),
 
@@ -170,8 +185,8 @@ class UpdateProductPage extends StatelessWidget {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: () async {
-                              if (controller.productName.text.isEmpty || controller.productPrice.text.isEmpty) {
-                                Get.snackbar("Validation", "Please fill in required fields",
+                              if (controller.productName.text.isEmpty || controller.productPrice.text.isEmpty || controller.selectedShopId.value.isEmpty) {
+                                Get.snackbar("Validation", "Please fill all required fields, including shop.",
                                     backgroundColor: Colors.orange, colorText: Colors.white);
                                 return;
                               }
@@ -320,12 +335,12 @@ class UpdateProductPage extends StatelessWidget {
   }
 
   Widget _buildDropdownField(String label, RxString selectedValue, List<String> items) {
-    // Remove duplicates and reset selectedValue if invalid
     final uniqueItems = items.toSet().toList();
 
-    if (!uniqueItems.contains(selectedValue.value)) {
-      selectedValue.value = "";
-    }
+    // Ensure the selected value is among the unique items, or set to null
+    String? dropdownValue = uniqueItems.contains(selectedValue.value) && selectedValue.value.isNotEmpty
+        ? selectedValue.value
+        : null;
 
     return Obx(() => Container(
       padding: EdgeInsets.symmetric(horizontal: 12),
@@ -334,7 +349,7 @@ class UpdateProductPage extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButton<String>(
-        value: selectedValue.value.isEmpty ? null : selectedValue.value,
+        value: dropdownValue, // Use the validated dropdownValue
         hint: Text(label),
         isExpanded: true,
         underline: SizedBox(),
@@ -343,6 +358,42 @@ class UpdateProductPage extends StatelessWidget {
           return DropdownMenuItem<String>(
             value: item,
             child: Text(item),
+          );
+        }).toList(),
+        onChanged: (value) {
+          if (value != null) {
+            selectedValue.value = value;
+          }
+        },
+      ),
+    ));
+  }
+
+  // New Dropdown for Shops
+  Widget _buildShopDropdown(String label, RxString selectedValue, List<Map<String, dynamic>> items) {
+    final validIds = items.map((shop) => shop['id'].toString()).toList();
+
+    // Ensure the selected value is among the valid IDs, or set to null
+    String? dropdownValue = validIds.contains(selectedValue.value) && selectedValue.value.isNotEmpty
+        ? selectedValue.value
+        : null;
+
+    return Obx(() => Container(
+      padding: EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DropdownButton<String>(
+        value: dropdownValue, // Use the validated dropdownValue
+        hint: Text(label),
+        isExpanded: true,
+        underline: SizedBox(),
+        icon: Icon(Icons.arrow_drop_down),
+        items: items.map((shop) {
+          return DropdownMenuItem<String>(
+            value: shop['id'].toString(),
+            child: Text(shop['name']?.toString() ?? 'Unnamed Shop'),
           );
         }).toList(),
         onChanged: (value) {

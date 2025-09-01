@@ -58,6 +58,9 @@ dependencies:
   intl: ^0.18.0
   shared_preferences: ^2.5.3
   cloud_firestore: ^5.6.12
+  path: ^1.9.0
+  uuid: ^4.4.0
+  msix: ^3.16.12
 
 
 dev_dependencies:

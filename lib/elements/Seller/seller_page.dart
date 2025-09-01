@@ -5,7 +5,9 @@ import 'package:miogra_admin/Models/SellerModel.dart';
 import 'package:miogra_admin/elements/Seller/sellerBusinessList.dart';
 import 'package:miogra_admin/elements/Seller/seller_Edit.dart';
 
-import '../../controller/sellerController.dart';
+import '../../controller/SellerController.dart';
+
+
 
 class SellerCard extends StatelessWidget {
   final SellerController controller = Get.put(SellerController());
@@ -33,7 +35,25 @@ class SellerCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                SizedBox(height: 20),
 
+                // 🔹 Zone Dropdown
+                Obx(() {
+                  if (controller.zones.isEmpty) {
+                    return Text("No Zones Available");
+                  }
+                  return DropdownButton<String>(
+                    value: controller.selectedZoneId.value,
+                    hint: Text("Select Zone"),
+                    items: controller.zones.map((zone) {
+                      return DropdownMenuItem<String>(
+                        value: zone['zoneId'] as String,
+                        child: Text(zone['zoneName'] as String),
+                      );
+                    }).toList(),
+                    onChanged: (newValue) => controller.onZoneChanged(newValue),
+                  );
+                }),
                 SizedBox(height: 30),
                 Obx(() => Container(
                   child: GridView.builder(

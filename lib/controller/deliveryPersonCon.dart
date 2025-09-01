@@ -1,80 +1,88 @@
-import 'package:get/get_rx/src/rx_types/rx_types.dart';
-import 'package:get/get_state_manager/src/simple/get_controllers.dart';
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../Models/deliveryPerson.dart';
 
 class DeliveryPersonController extends GetxController {
-  var selectedPerson = Rxn<int>();
+  var deliveryPersons = <DeliveryPerson>[].obs;
+  var isLoading = false.obs;
 
-  List<DeliveryPerson> deliveryPersons = [
-    DeliveryPerson(
-        id: "SID98765432101",
-        name: "Arun",
-        imageUrl: "assets/images/img1.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        isAvailable: true),
-    DeliveryPerson(
-        id: "SID98765432102",
-        name: "Raju",
-        imageUrl: "assets/images/img2.png",
-        isAvailable: true,
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com"),
-    DeliveryPerson(
-        id: "SID98765432103",
-        name: "Raju",
-        imageUrl: "assets/images/img3.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        isAvailable: false),
-    DeliveryPerson(
-        id: "SID98765432101",
-        name: "Arun",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        imageUrl: "assets/images/img1.png",
-        isAvailable: true),
-    DeliveryPerson(
-        id: "SID98765432102",
-        name: "Raju",
-        imageUrl: "assets/images/img2.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        isAvailable: false),
-    DeliveryPerson(
-        id: "SID98765432103",
-        name: "Raju",
-        imageUrl: "assets/images/img3.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        isAvailable: true),
-    DeliveryPerson(
-        id: "SID98765432102",
-        name: "Raju",
-        imageUrl: "assets/images/img2.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.com",
-        isAvailable: true),
-    DeliveryPerson(
-        id: "SID98765432103",
-        name: "Raju",
-        imageUrl: "assets/images/img3.png",
-        phone: "9847593955",
-        address : "TMJ complex, Thiruvithankodu, Azhaiamandapam, Tamil Nadu 629167",
-        email : "abhay@gmail.c,om",
-        isAvailable: true),
-  ].obs;
+  // 🔹 Zones
+  var zones = <Map<String, dynamic>>[].obs;
+  var selectedZoneId = Rxn<String>();
+
+  @override
+  void onInit() {
+    super.onInit();
+    loadZonesFromSession();
+  }
+
+  /// Load zones from admin session stored in SharedPreferences
+  Future<void> loadZonesFromSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sessionJson = prefs.getString('adminSession');
+    if (sessionJson == null) return;
+
+    final sessionData = jsonDecode(sessionJson);
+    final List<dynamic> zonesData = sessionData['zonesData'] ?? [];
+    zones.assignAll(zonesData.cast<Map<String, dynamic>>());
+
+    // Set default zone
+    final primaryZoneId = sessionData['primaryZoneId'];
+    if (primaryZoneId != null &&
+        zones.any((z) => z['zoneId'] == primaryZoneId)) {
+      selectedZoneId.value = primaryZoneId;
+    } else if (zones.isNotEmpty) {
+      selectedZoneId.value = zones.first['zoneId'];
+    }
+
+    if (selectedZoneId.value != null) {
+      await fetchDeliveryPersonsByZone(selectedZoneId.value!);
+    }
+  }
+
+  /// Fetch delivery persons by selected zone
+  Future<void> fetchDeliveryPersonsByZone(String zoneId) async {
+    isLoading.value = true;
+    try {
+      QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('deliveryboy')
+          .where('zoneId', isEqualTo: zoneId)
+          .get();
+
+      deliveryPersons.value = snapshot.docs.map((doc) {
+        var data = doc.data() as Map<String, dynamic>;
+        return DeliveryPerson(
+          id: doc.id,
+          name: data['name'] ?? '',
+          phone: data['phone'] ?? '',
+          address: data['address'] ?? '',
+          email: data['email'] ?? '',
+          imageUrl: data['profile_image'] ?? '',
+          isAvailable: data['status'] == 'online',
+        );
+      }).toList();
+    } catch (e) {
+      print('Error fetching delivery persons: $e');
+    }
+    isLoading.value = false;
+  }
+
+  /// When admin selects a new zone
+  Future<void> onZoneChanged(String? newZoneId) async {
+    if (newZoneId == null || newZoneId == selectedZoneId.value) return;
+    selectedZoneId.value = newZoneId;
+
+    deliveryPersons.clear(); // clear old list
+    await fetchDeliveryPersonsByZone(newZoneId); // fetch new list
+  }
 
   void toggleLiveStatus(int index) {
-    deliveryPersons[index].isAvailable.toggle();
+    deliveryPersons[index].isAvailable = !deliveryPersons[index].isAvailable;
     update();
   }
+
+
 }

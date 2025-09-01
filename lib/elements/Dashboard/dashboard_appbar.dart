@@ -33,18 +33,25 @@ class DashboardTopBar extends StatelessWidget {
 
               // Icons
               _topBarIcon(LucideIcons.lamp, Colors.red,
-                  onTap: () => Get.to(() => UserFormPage())),
+                  // onTap: () => Get.to(() => UserFormPage())
+              ),
               Obx(() => _topBarIcon(
                 LucideIcons.alarmClock,
                 controller.hasAlarm.value ? Colors.red : Colors.black,
                 onTap: controller.toggleAlarm,
               )),
               _topBarIcon(LucideIcons.badgeCheck, Colors.black,
-                  onTap: () => Get.to(() => UserFormPage())),
+                  // onTap: () => Get.to(() => UserFormPage())
+                  onTap: loginController.logout
+              ),
               _topBarIcon(LucideIcons.userSquare, Colors.black,
-                  onTap: () => Get.to(() => CommissionGSTPage())),
+                  // onTap: () => Get.to(() => CommissionGSTPage())
+                  onTap: loginController.logout
+              ),
               _topBarIcon(LucideIcons.megaphone, Colors.black,
-                  onTap: () => Get.to(() => AnnouncementPage())),
+                  // onTap: () => Get.to(() => AnnouncementPage())
+                  onTap: loginController.logout
+              ),
               _topBarIcon(
                 LucideIcons.logOut,
                 Colors.black,
@@ -52,66 +59,66 @@ class DashboardTopBar extends StatelessWidget {
               ),
 
 
-              Obx(() => SizedBox(
-                width: 200,
-                height: 50,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Color(0xFF7B5BA6),
-                    borderRadius: BorderRadius.circular(8), // Dropdown button radius
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: controller.selectedZone.value.isNotEmpty
-                          ? controller.selectedZone.value
-                          : null,
-                      hint: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          children: [
-                            Icon(Icons.interests_outlined, color: Colors.white, size: 24),
-                            SizedBox(width: 8),
-                            Text("Modules", style: TextStyle(color: Colors.white)),
-                          ],
-                        ),
-                      ),
-                      dropdownColor: Color(0xFFF4F2F2),
-                      icon: Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white),
-                      style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          controller.setZone(newValue);
-                        }
-                      },
-                      items: [
-                        {'label': 'FOOD', 'icon': Icons.fastfood,'color':Colors.amber},
-                        {'label': 'FRESH CUT', 'icon': Icons.add_chart_rounded,'color':Colors.cyan},
-                        {'label': 'PHARMACY', 'icon': Icons.local_hospital,'color':Colors.pink},
-                        {'label': 'DAILY MIO', 'icon': Icons.rice_bowl,'color':Colors.green},
-                      ].map((item) {
-                        return DropdownMenuItem<String>(
-                          value: item['label'] as String,
-                          child: Container(
-                            margin: EdgeInsets.only(left: 20.0), // <-- Add margin here (adjust 20.0 as needed)
-                            decoration: BoxDecoration(
-                              color: Colors.purple[100], // Background per item (optional)
-                              borderRadius: BorderRadius.circular(8), // Rounded item
-                            ),
-                            padding: EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                            child: Row(
-                              children: [
-                                Icon(item['icon'] as IconData, size: 20, color: Colors.purple),
-                                SizedBox(width: 10),
-                                Text(item['label'] as String),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ))
+              // Obx(() => SizedBox(
+              //   width: 200,
+              //   height: 50,
+              //   child: DecoratedBox(
+              //     decoration: BoxDecoration(
+              //       color: Color(0xFF7B5BA6),
+              //       borderRadius: BorderRadius.circular(8), // Dropdown button radius
+              //     ),
+              //     child: DropdownButtonHideUnderline(
+              //       child: DropdownButton<String>(
+              //         value: controller.selectedZone.value.isNotEmpty
+              //             ? controller.selectedZone.value
+              //             : null,
+              //         hint: Padding(
+              //           padding: const EdgeInsets.symmetric(horizontal: 8),
+              //           child: Row(
+              //             children: [
+              //               Icon(Icons.interests_outlined, color: Colors.white, size: 24),
+              //               SizedBox(width: 8),
+              //               Text("Modules", style: TextStyle(color: Colors.white)),
+              //             ],
+              //           ),
+              //         ),
+              //         dropdownColor: Color(0xFFF4F2F2),
+              //         icon: Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white),
+              //         style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold),
+              //         onChanged: (String? newValue) {
+              //           if (newValue != null) {
+              //             controller.setZone(newValue);
+              //           }
+              //         },
+              //         items: [
+              //           {'label': 'FOOD', 'icon': Icons.fastfood,'color':Colors.amber},
+              //           {'label': 'FRESH CUT', 'icon': Icons.add_chart_rounded,'color':Colors.cyan},
+              //           {'label': 'PHARMACY', 'icon': Icons.local_hospital,'color':Colors.pink},
+              //           {'label': 'DAILY MIO', 'icon': Icons.rice_bowl,'color':Colors.green},
+              //         ].map((item) {
+              //           return DropdownMenuItem<String>(
+              //             value: item['label'] as String,
+              //             child: Container(
+              //               margin: EdgeInsets.only(left: 20.0), // <-- Add margin here (adjust 20.0 as needed)
+              //               decoration: BoxDecoration(
+              //                 color: Colors.purple[100], // Background per item (optional)
+              //                 borderRadius: BorderRadius.circular(8), // Rounded item
+              //               ),
+              //               padding: EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              //               child: Row(
+              //                 children: [
+              //                   Icon(item['icon'] as IconData, size: 20, color: Colors.purple),
+              //                   SizedBox(width: 10),
+              //                   Text(item['label'] as String),
+              //                 ],
+              //               ),
+              //             ),
+              //           );
+              //         }).toList(),
+              //       ),
+              //     ),
+              //   ),
+              // ))
 
 
             ],

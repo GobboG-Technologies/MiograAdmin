@@ -13,7 +13,7 @@ class LoginController extends GetxController {
   final passwordController = TextEditingController();
 
   RxBool isLoading = false.obs;
-  RxMap<String, dynamic> zoneData = <String, dynamic>{}.obs;
+  RxMap<String, dynamic> adminData = <String, dynamic>{}.obs;
 
   /// LOGIN FUNCTION
   Future<void> login() async {
@@ -28,29 +28,74 @@ class LoginController extends GetxController {
     try {
       isLoading.value = true;
 
-      // Sign in
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      // 1. Sign in the user
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
-      // Fetch zone data for this zone admin
-      final zoneDoc = await _firestore
-          .collection('zone')
-          .where('adminEmail', isEqualTo: email)
-          .limit(1)
-          .get();
-
-      if (zoneDoc.docs.isNotEmpty) {
-        zoneData.value = zoneDoc.docs.first.data();
-        zoneData['zoneId'] = zoneDoc.docs.first.id;
-
-        // Save login data to SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('zoneData', jsonEncode(zoneData));
+      final user = userCredential.user;
+      if (user == null) {
+        throw FirebaseAuthException(code: 'USER-NOT-FOUND');
       }
 
-      // Navigate to zone dashboard
-      Get.offAllNamed('/zone-dashboard');
+      // 2. Fetch the admin document from the "admins" collection using the UID
+      final adminDoc =
+      await _firestore.collection('admins').doc(user.uid).get();
+
+      if (adminDoc.exists && adminDoc.data()?['role'] == 'zone_admin') {
+        final data = adminDoc.data()!;
+
+        // Extract zones list from admin document
+        final List<dynamic> zoneIds = data['zones'] ?? [];
+
+        // 3. Fetch zone data for each zoneId
+        List<Map<String, dynamic>> zonesData = [];
+        for (String zoneId in zoneIds.cast<String>()) {
+          final zoneDoc =
+          await _firestore.collection('zone').doc(zoneId).get();
+
+          if (zoneDoc.exists) {
+            final zoneData = zoneDoc.data()!;
+            zonesData.add({
+              'zoneId': zoneData['zoneId'],
+              'zoneName': zoneData['zoneName'],
+              'zonePoints': zoneData['zonePoints'],
+            });
+          }
+        }
+
+        // 4. Prepare the data to be saved in SharedPreferences
+        final sessionData = {
+          'uid': user.uid,
+          'name': data['name'],
+          'email': data['email'],
+          'role': data['role'],
+          'primaryZoneId': data['primaryZone'],
+          'zonesData': zonesData,
+        };
+
+        adminData.value = sessionData;
+
+        // 5. Save the admin's session data to SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('adminSession', jsonEncode(sessionData));
+
+        // 6. Navigate to the dashboard
+        Get.offAllNamed('/zone-dashboard');
+      } else {
+        // If the user document doesn't exist or they aren't a zone_admin, sign them out.
+        await _auth.signOut();
+        Get.snackbar("Login Failed", "You do not have permission to log in.");
+        Get.offAllNamed('/login'); // fallback
+      }
     } on FirebaseAuthException catch (e) {
-      Get.snackbar("Login Failed", e.message ?? "Invalid credentials");
+      Get.snackbar(
+        "Login Failed",
+        e.message ?? "Invalid email or password. Please try again.",
+      );
+    } catch (e) {
+      Get.snackbar("Error", "An unexpected error occurred: $e");
     } finally {
       isLoading.value = false;
     }
@@ -59,22 +104,26 @@ class LoginController extends GetxController {
   /// AUTO-LOGIN CHECK
   Future<void> checkAutoLogin() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedZoneData = prefs.getString('zoneData');
+    final savedSessionData = prefs.getString('adminSession');
 
-    if (savedZoneData != null) {
-      zoneData.value = jsonDecode(savedZoneData);
-      Get.offAllNamed('/zone-dashboard'); // Go straight to dashboard
+    if (savedSessionData != null) {
+      // If session data exists, decode it and go to the dashboard
+      adminData.value = jsonDecode(savedSessionData);
+      Get.offAllNamed('/zone-dashboard');
+    } else {
+      // No saved session → go to login page
+      Get.offAllNamed('/login');
     }
   }
 
   /// LOGOUT
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await prefs.remove('adminSession'); // Clear session data
     await _auth.signOut();
+    adminData.clear(); // Clear local state
     Get.offAllNamed('/login');
   }
-
 
   @override
   void onClose() {
@@ -83,4 +132,3 @@ class LoginController extends GetxController {
     super.onClose();
   }
 }
-// zoneId  yVuZG4sPLW0izNXS32Qu

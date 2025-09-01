@@ -1,18 +1,14 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:intl/intl.dart'; // For date formatting
-import 'package:cloud_firestore/cloud_firestore.dart'; // For Timestamp
-
-// Your controllers
-import '../../controller/deliveryPersonCon.dart';
+import 'package:intl/intl.dart';
 import '../../controller/orderController.dart';
 
 class OrderListPage extends StatelessWidget {
-  // GetX will find or create the OrderController instance
   final OrderController controller = Get.put(OrderController());
 
   OrderListPage({super.key});
-  // controller.orders
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -21,11 +17,11 @@ class OrderListPage extends StatelessWidget {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            Center(child: _buildSearchBar()),
+            _buildHeader(),
             const SizedBox(height: 30),
             Expanded(
               child: Obx(() {
-                if (controller.orders.isEmpty) {
+                if (controller.isLoading.value) {
                   return const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -37,6 +33,26 @@ class OrderListPage extends StatelessWidget {
                     ),
                   );
                 }
+
+                // Permission check
+                if (!controller.hasPermission.value) {
+                  return const Center(
+                    child: Text(
+                      "You don't have permission to view orders.",
+                      style: TextStyle(fontSize: 16, color: Colors.red),
+                    ),
+                  );
+                }
+
+                if (controller.filteredOrders.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      "No requested orders found for this zone.",
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                    ),
+                  );
+                }
+
                 return LayoutBuilder(
                   builder: (context, constraints) {
                     int crossAxisCount = constraints.maxWidth > 1200
@@ -53,8 +69,11 @@ class OrderListPage extends StatelessWidget {
                       itemCount: controller.filteredOrders.length,
                       itemBuilder: (context, index) {
                         final order = controller.filteredOrders[index];
-                        // <-- change here
-                        return RequestOrderCard(order: order, index: index);
+                        return RequestOrderCard(
+                          order: order,
+                          index: index,
+                          controller: controller, // pass controller
+                        );
                       },
                     );
                   },
@@ -67,10 +86,23 @@ class OrderListPage extends StatelessWidget {
     );
   }
 
+  Widget _buildHeader() {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 1000),
+        child: Row(
+          children: [
+            Expanded(child: _buildSearchBar()),
+            const SizedBox(width: 20),
+            _buildZoneDropdown(),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSearchBar() {
-    final controller = Get.find<OrderController>();
     return Container(
-      width: 600,
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(10),
@@ -87,22 +119,62 @@ class OrderListPage extends StatelessWidget {
     );
   }
 
+  Widget _buildZoneDropdown() {
+    return Obx(() {
+      if (controller.zones.isEmpty) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Text("No Zones", style: TextStyle(color: Colors.grey)),
+        );
+      }
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 15.0),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: controller.selectedZoneId.value,
+            hint: const Text("Select Zone"),
+            items: controller.zones.map((zone) {
+              return DropdownMenuItem<String>(
+                value: zone['zoneId'] as String,
+                child: Text(zone['zoneName'] as String,
+                    style: const TextStyle(color: Colors.black87)),
+              );
+            }).toList(),
+            onChanged: (newValue) => controller.onZoneChanged(newValue),
+          ),
+        ),
+      );
+    });
+  }
 }
 
+/// RequestOrderCard
 class RequestOrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final int index;
+  final OrderController controller;
 
   const RequestOrderCard({
     Key? key,
     required this.order,
     required this.index,
+    required this.controller,
   }) : super(key: key);
 
   String _formatTimestamp(dynamic timestamp, String format) {
-    if (timestamp is! Timestamp) return "N/A";
+    if (timestamp == null) return "N/A";
+    if (timestamp is Timestamp) return DateFormat(format).format(timestamp.toDate());
     try {
-      return DateFormat(format).format(timestamp.toDate());
+      return DateFormat(format).format(DateTime.parse(timestamp.toString()));
     } catch (e) {
       return "Invalid Date";
     }
@@ -110,19 +182,21 @@ class RequestOrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final OrderController controller = Get.find<OrderController>();
     final List items = order["items"] as List? ?? [];
-    final bool isCOD = (order["paymentId"] == null || (order["paymentId"] as String).isEmpty);
-    final String shopName = order["shopName"] ?? (items.isNotEmpty ? items[0]['shopName'] ?? 'Unknown Shop' : 'Unknown Shop');
+    final bool isCOD =
+    (order["paymentId"] == null || (order["paymentId"] as String).isEmpty);
+    final String shopName = order["shopName"] ??
+        (items.isNotEmpty ? items[0]['shopName'] ?? 'Unknown Shop' : 'Unknown Shop');
 
-    // FIX: Compute address outside widget tree
     final addressMap = order["deliveryAddress"] ?? {};
     final addressText = [
       addressMap["house Name"],
       addressMap["landmark"],
       addressMap["city"],
       addressMap["fullAddress"],
-    ].where((e) => e != null && e.toString().isNotEmpty && e.toString() != "null").join(", ");
+    ]
+        .where((e) => e != null && e.toString().isNotEmpty && e.toString() != "null")
+        .join(", ");
 
     return Card(
       color: Colors.white,
@@ -134,22 +208,23 @@ class RequestOrderCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                "Order ID: ${order["docId"] ?? 'N/A'}",
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
-              ),
+              Text("Order ID: ${order["docId"] ?? 'N/A'}",
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey)),
               const SizedBox(height: 10),
               Center(
-                child: Text(
-                  shopName,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[600]),
-                ),
+                child: Text(shopName,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[600])),
               ),
               const SizedBox(height: 10),
               if (items.isNotEmpty)
                 ...items.map((item) {
-                  final bool isVeg = (item["foodType"] as String?)?.toLowerCase() == "veg";
+                  final bool isVeg =
+                      (item["foodType"] as String?)?.toLowerCase() == "veg";
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4.0),
                     child: Row(
@@ -165,7 +240,8 @@ class RequestOrderCard extends StatelessWidget {
                               height: 60,
                               width: 60,
                               color: Colors.grey.shade200,
-                              child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                              child: const Icon(Icons.image_not_supported,
+                                  color: Colors.grey),
                             ),
                           ),
                         ),
@@ -174,62 +250,66 @@ class RequestOrderCard extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                item["productName"] ?? 'Unnamed Product',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                              ),
+                              Text(item["productName"] ?? 'Unnamed Product',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 14, fontWeight: FontWeight.w600)),
                               Row(
                                 children: [
-                                  Icon(Icons.circle, color: isVeg ? Colors.green : Colors.red, size: 14),
+                                  Icon(Icons.circle,
+                                      color: isVeg ? Colors.green : Colors.red,
+                                      size: 14),
                                   const SizedBox(width: 4),
-                                  Text(isVeg ? "Veg" : "Non-Veg", style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                                  Text(isVeg ? "Veg" : "Non-Veg",
+                                      style: TextStyle(
+                                          fontSize: 12, color: Colors.grey[700])),
                                 ],
                               ),
                             ],
                           ),
                         ),
-                        Text("x ${item['count'] ?? 1}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text("x ${item['count'] ?? 1}",
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
                       ],
                     ),
                   );
                 }).toList(),
-
               const SizedBox(height: 12),
-
-              Text("Address", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple[900], fontSize: 17)),
+              Text("Address",
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple[900],
+                      fontSize: 17)),
               const SizedBox(height: 8),
-              Text(
-                addressText.isEmpty ? 'Address not available in database' : addressText,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 15, color: Colors.grey[600], fontWeight: FontWeight.bold),
-              ),
-
+              Text(addressText.isEmpty ? 'Address not available' : addressText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Image.asset(
-                    isCOD ? "assets/images/cod.png" : "assets/images/upi.png",
-                    height: 25,
-                    width: 39,
-                  ),
+                      isCOD ? "assets/images/cod.png" : "assets/images/upi.png",
+                      height: 25,
+                      width: 39),
                   Row(
                     children: [
                       Icon(Icons.currency_rupee_sharp, color: Colors.purple[900]),
-                      Text(
-                        (order["totalPrice"] ?? 0).toStringAsFixed(2),
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple[900], fontSize: 20),
-                      ),
+                      Text((order["totalPrice"] ?? 0).toStringAsFixed(2),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple[900],
+                              fontSize: 20)),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -238,24 +318,35 @@ class RequestOrderCard extends StatelessWidget {
                     children: [
                       Text(
                         _formatTimestamp(order["timestamp"], 'MMM d, yyyy'),
-                        style: TextStyle(color: Colors.purple[900], fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                            color: Colors.purple[900],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
                       ),
                       Text(
                         _formatTimestamp(order["timestamp"], 'h:mm a'),
-                        style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
                       ),
                     ],
                   ),
                   const Spacer(),
-                  // Assign button (commented out, enable if needed)
-                  // ElevatedButton(
-                  //   onPressed: () => _showAssignDialog(context, index),
-                  //   style: ElevatedButton.styleFrom(
-                  //     backgroundColor: const Color(0xFF5D348B),
-                  //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  //   ),
-                  //   child: const Text("Assign", style: TextStyle(color: Colors.white)),
-                  // )
+                  // 🚨 Cancel button
+                  ElevatedButton(
+                    onPressed: () async {
+                      await controller.cancelOrder(order["docId"]);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text("Cancel"),
+                  ),
                 ],
               ),
             ],
@@ -264,105 +355,4 @@ class RequestOrderCard extends StatelessWidget {
       ),
     );
   }
-
-  // void _showAssignDialog(BuildContext context, int orderIndex) {
-  //   final deliveryController = Get.put(DeliveryPersonController());
-  //   final OrderController controller = Get.find<OrderController>();
-  //
-  //   Get.dialog(
-  //     Dialog(
-  //       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-  //       child: Container(
-  //         width: MediaQuery.of(context).size.width * 0.4,
-  //         padding: const EdgeInsets.all(20),
-  //         child: Column(
-  //           mainAxisSize: MainAxisSize.min,
-  //           children: [
-  //             const Text("Select Delivery Person", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-  //             const SizedBox(height: 10),
-  //             const Divider(),
-  //             SizedBox(
-  //               height: deliveryController.deliveryPersons.length > 6 ? 300 : null,
-  //               child: SingleChildScrollView(
-  //                 child: Column(
-  //                   children: List.generate(deliveryController.deliveryPersons.length, (index) {
-  //                     var person = deliveryController.deliveryPersons[index];
-  //                     return Obx(() {
-  //                       return ListTile(
-  //                         leading: Row(
-  //                           mainAxisSize: MainAxisSize.min,
-  //                           children: [
-  //                             CircleAvatar(
-  //                               radius: 8,
-  //                               backgroundColor: deliveryController.deliveryPersons[index].isAvailable.value
-  //                                   ? Colors.green
-  //                                   : Colors.red,
-  //                             ),
-  //                             const SizedBox(width: 8),
-  //                             ClipRRect(
-  //                               borderRadius: BorderRadius.circular(8),
-  //                               child: Image.network(
-  //                                 person.imageUrl ?? "https://via.placeholder.com/60",
-  //                                 width: 60,
-  //                                 height: 60,
-  //                                 fit: BoxFit.cover,
-  //                                 errorBuilder: (context, error, stackTrace) => Container(
-  //                                   width: 60,
-  //                                   height: 60,
-  //                                   color: Colors.grey.shade200,
-  //                                   child: const Icon(Icons.image_not_supported, color: Colors.grey),
-  //                                 ),
-  //                               ),
-  //                             ),
-  //                           ],
-  //                         ),
-  //                         title: Text(person.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-  //                         subtitle: Text("ID: ${person.id}", style: const TextStyle(color: Color(0xFF5D348B))),
-  //                         trailing: Radio<int>(
-  //                           value: index,
-  //                           groupValue: deliveryController.selectedPerson.value,
-  //                           onChanged: person.isAvailable.value ? (value) => deliveryController.selectedPerson.value = value : null,
-  //                           activeColor: const Color(0xFF5D348B),
-  //                         ),
-  //                       );
-  //                     });
-  //                   }),
-  //                 ),
-  //               ),
-  //             ),
-  //             const SizedBox(height: 15),
-  //             Row(
-  //               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  //               children: [
-  //                 ElevatedButton(
-  //                   onPressed: () => Get.back(),
-  //                   style: ElevatedButton.styleFrom(
-  //                     side: const BorderSide(color: Colors.orange),
-  //                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-  //                   ),
-  //                   child: const Text("Close", style: TextStyle(color: Colors.orange)),
-  //                 ),
-  //                 ElevatedButton(
-  //                   onPressed: () {
-  //                     // if (deliveryController.selectedPerson.value != null) {
-  //                     //   controller.assignedOrders[orderIndex] =
-  //                     //       deliveryController.deliveryPersons[deliveryController.selectedPerson.value!].name;
-  //                     //   Get.back();
-  //                     // }
-  //                   },
-  //                   style: ElevatedButton.styleFrom(
-  //                     backgroundColor: const Color(0xFF5D348B),
-  //                     disabledForegroundColor: Colors.white.withOpacity(0.6),
-  //                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-  //                   ),
-  //                   child: const Text("Assign", style: TextStyle(color: Colors.white)),
-  //                 ),
-  //               ],
-  //             ),
-  //           ],
-  //         ),
-  //       ),
-  //     ),
-  //   );
-  // }
 }

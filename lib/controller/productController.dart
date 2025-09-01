@@ -1,227 +1,230 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../Models/product.dart';
 
 class ProductController extends GetxController {
-  var selectedTab = 0.obs;
   var products = <Product>[].obs;
   var filteredProducts = <Product>[].obs;
-
   var searchController = TextEditingController();
+  var hasPermission = false.obs;
 
-  // Zone data
+
+  // Zone variables
+  var zones = <Map<String, dynamic>>[].obs;
+  var selectedZoneId = Rxn<String>();
+  var selectedTab = 0.obs;
+
   List<int> zonePincodes = [];
   List<LatLng> zonePoints = [];
 
   @override
   void onInit() {
     super.onInit();
-    loadZoneDataAndProducts();
+    _loadZoneDataAndProducts();
     searchController.addListener(() {
       applySearchFilter(searchController.text);
     });
   }
 
-  /// Load zone data first, then fetch products by zone
-  Future<void> loadZoneDataAndProducts() async {
+  /// Load zones from SharedPreferences and fetch products for selected zone
+  Future<void> _loadZoneDataAndProducts() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final zoneJson = prefs.getString('zoneData');
+      final sessionJson = prefs.getString('adminSession');
+      if (sessionJson == null) return;
 
-      if (zoneJson == null) {
-        print("⚠️ No zone data found in SharedPreferences");
-        return;
+      final sessionData = jsonDecode(sessionJson);
+      final List<dynamic> zonesData = sessionData['zonesData'] ?? [];
+      zones.assignAll(zonesData.cast<Map<String, dynamic>>());
+
+      // Default selected zone
+      final primaryZoneId = sessionData['primaryZoneId'];
+      if (primaryZoneId != null && zones.any((z) => z['zoneId'] == primaryZoneId)) {
+        selectedZoneId.value = primaryZoneId;
+      } else if (zones.isNotEmpty) {
+        selectedZoneId.value = zones.first['zoneId'];
       }
 
-      final zoneData = jsonDecode(zoneJson);
-      _parseZoneData(zoneData);
-
-      await fetchProductsByZone();
+      if (selectedZoneId.value != null) {
+        await fetchProductsByZone(selectedZoneId.value!);
+      }
     } catch (e) {
-      print("Error loading zone data: $e");
+      print("❌ Error loading zones: $e");
     }
   }
 
-  /// Fetch products belonging to shops inside the zone
-  Future<void> fetchProductsByZone() async {
+  /// Fetch products filtered by selected zone
+  Future<void> fetchProductsByZone([String? zoneId]) async {
     try {
-      // 1. Get zoneId from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      final zoneJson = prefs.getString('zoneData');
-      if (zoneJson == null) {
-        print("⚠️ No zone data in SharedPreferences");
+      final id = zoneId ?? selectedZoneId.value;
+      if (id == null) return;
+
+      print("🔍 Checking zone permission for zoneId: '$id'");
+
+      // Fetch the zone document
+      final zoneDoc = await FirebaseFirestore.instance.collection('zone').doc(id).get();
+      if (!zoneDoc.exists) {
+        print("⚠️ Zone not found for ID: $id");
+        products.clear();
+        filteredProducts.clear();
         return;
       }
 
-      final zoneData = jsonDecode(zoneJson);
-      final zoneId = zoneData['zoneId'];
+      final zoneData = zoneDoc.data() ?? {};
+      print("📄 Zone data: $zoneData");
 
-      if (zoneId == null || zoneId.isEmpty) {
-        print("⚠️ zoneId missing in zoneData");
+      final adminPermissions = zoneData['adminPermissions'];
+      if (adminPermissions == null || adminPermissions is! Map) {
+        print("⚠️ adminPermissions is missing or not a map.");
+        products.clear();
+        filteredProducts.clear();
         return;
       }
 
-      print("🔍 Current Zone ID: $zoneId");
+      bool productListEnabled = false;
 
-      // 2. Fetch products filtered by zoneId and productStatus 'accepted'
-      final productSnapshot = await FirebaseFirestore.instance
+
+      (adminPermissions as Map<String, dynamic>).forEach((adminId, perms) {
+        if (perms is Map && perms['productList'] == true) {
+          productListEnabled = true;
+        }
+      });
+
+      if (!productListEnabled) {
+        print("🚫 No admin has productList enabled for zone: $id");
+        products.clear();
+        filteredProducts.clear();
+        return;
+      } else {
+        print("✅ productList is enabled. Fetching products...");
+      }
+
+      // Fetch products from Firestore
+      final snapshot = await FirebaseFirestore.instance
           .collection('products')
-          .where('zoneId', isEqualTo: zoneId)
-          .where('productStatus', isEqualTo: 'visible')
+          .where('zoneId', isEqualTo: id)
+          .where('status', isEqualTo: 'accepted')
           .get();
 
-      // --- DEBUGGING ---
-      print("🔥 Total products fetched for this zone: ${productSnapshot.docs.length}");
+      final fetchedProducts = snapshot.docs
+          .map((doc) => Product.fromFirestore(doc.data(), doc.id))
+          .toList();
 
-      // Print names and IDs of all products fetched
-      for (var doc in productSnapshot.docs) {
-        final data = doc.data();
-        final productName = data['productName'] ?? data['name'] ?? 'Unnamed';
+      products.assignAll(fetchedProducts);
+      filteredProducts.assignAll(fetchedProducts);
 
-        print("➡️ Product: $productName | ID: ${doc.id}");
-      }
-
-
-      // 3. Map data to Product model
-      products.assignAll(
-        productSnapshot.docs
-            .map((doc) => Product.fromFirestore(doc.data(), doc.id))
-            .toList(),
-      );
-
-      filteredProducts.assignAll(products);
-
-      // --- DEBUGGING ---
-      print("✅ Final products list count after filtering: ${products.length}");
+      print("✅ ${fetchedProducts.length} products loaded for zone $id");
     } catch (e) {
-      print("❌ Error fetching products by zoneId: $e");
+      print("❌ Error fetching products: $e");
     }
   }
 
 
-
+  /// Zone selection changed
+  Future<void> onZoneChanged(String? newZoneId) async {
+    if (newZoneId == null || newZoneId == selectedZoneId.value) return;
+    selectedZoneId.value = newZoneId;
+    products.clear();
+    filteredProducts.clear();
+    await fetchProductsByZone(newZoneId);
+  }
 
   /// Search filter
   void applySearchFilter(String query) {
     if (query.isEmpty) {
       filteredProducts.assignAll(products);
     } else {
-      filteredProducts.assignAll(products.where((product) =>
-      product.name.toLowerCase().contains(query.toLowerCase()) ||
-          product.id.toLowerCase().contains(query.toLowerCase())));
+      filteredProducts.assignAll(
+        products.where((p) =>
+        p.name.toLowerCase().contains(query.toLowerCase()) ||
+            p.id.toLowerCase().contains(query.toLowerCase())),
+      );
     }
   }
 
-  /// Toggle product status between Live and Paused
+  /// Toggle product Live/Offline
   Future<void> toggleLiveStatus(int index) async {
     try {
       final product = filteredProducts[index];
-
-      // Flip local boolean
       bool newIsLive = !product.isLive;
       String newStatus = newIsLive ? "Live" : "Paused";
 
-      // Update Firestore
       await FirebaseFirestore.instance
           .collection('products')
           .doc(product.id)
           .update({'productStatus': newStatus});
 
-      // Update locally
       product.isLive = newIsLive;
-
-      // Sync with main products list
       int originalIndex = products.indexWhere((p) => p.id == product.id);
-      if (originalIndex != -1) {
-        products[originalIndex].isLive = newIsLive;
-      }
+      if (originalIndex != -1) products[originalIndex].isLive = newIsLive;
 
       update();
-
-      Get.snackbar(
-        "Success",
-        "Product status updated to $newStatus",
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-      );
+      Get.snackbar("Success", "Product status updated to $newStatus",
+          snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.green, colorText: Colors.white);
     } catch (e) {
-      Get.snackbar(
-        "Error",
-        "Failed to update product status: $e",
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      Get.snackbar("Error", "Failed to update product status: $e",
+          snackPosition: SnackPosition.BOTTOM, backgroundColor: Colors.red, colorText: Colors.white);
     }
   }
 
 
-  // --- Zone logic same as shops ---
-  void _parseZoneData(Map<String, dynamic> zoneData) {
-    zonePincodes = (zoneData['pincodes'] ?? [])
-        .map<int>((e) => e is int ? e : int.tryParse(e.toString()) ?? 0)
-        .toList();
+  /// Check if paymentUpdate is enabled for the selected zone
+  Future<bool> canEditProduct() async {
+    final zoneId = selectedZoneId.value;
+    if (zoneId == null) return false;
 
-    zonePoints = (zoneData['zonePoints'] as List)
-        .map((p) => LatLng(
-      (p['latitude'] ?? 0).toDouble(),
-      (p['longitude'] ?? 0).toDouble(),
-    ))
-        .toList();
+    try {
+      final zoneDoc = await FirebaseFirestore.instance.collection('zone').doc(zoneId).get();
+      if (!zoneDoc.exists) return false;
 
-    print("✅ Zone pincodes: $zonePincodes");
-    print("✅ Zone points count: ${zonePoints.length}");
-  }
+      final zoneData = zoneDoc.data() ?? {};
+      final adminPermissions = zoneData['adminPermissions'];
+      if (adminPermissions == null || adminPermissions is! Map) return false;
 
-  bool _isShopInZone(Map<String, dynamic> data) {
-    final lat = (data['location']?['latitude'] ?? 0).toDouble();
-    final lng = (data['location']?['longitude'] ?? 0).toDouble();
+      bool paymentUpdateEnabled = false;
+      (adminPermissions as Map<String, dynamic>).forEach((adminId, perms) {
+        if (perms is Map && perms['paymentUpdate'] == true) {
+          paymentUpdateEnabled = true;
+        }
+      });
 
-    final isInPolygon = _isPointInPolygon(LatLng(lat, lng), zonePoints);
-    final shopPincode = _extractPincode(data['address']);
-    final isPincodeMatch =
-    zonePincodes.map((e) => e.toString()).contains(shopPincode);
-
-    if (zonePoints.isEmpty) return isPincodeMatch;
-
-    return isInPolygon || isPincodeMatch;
-  }
-
-  String _extractPincode(String? address) {
-    if (address == null) return '';
-    final regex = RegExp(r'PIN[:\s]+(\d{3,6})');
-    final match = regex.firstMatch(address);
-    return match?.group(1) ?? '';
-  }
-
-  bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
-    if (polygon.isEmpty) return false;
-    int intersectCount = 0;
-    for (int j = 0; j < polygon.length - 1; j++) {
-      if (_rayCastIntersect(point, polygon[j], polygon[j + 1])) {
-        intersectCount++;
-      }
+      return paymentUpdateEnabled;
+    } catch (e) {
+      print("❌ Error checking paymentUpdate permission: $e");
+      return false;
     }
-    return (intersectCount % 2) == 1;
+  }
+  /// Check if productCreate is enabled for the selected zone
+  Future<bool> canCreateProduct() async {
+    final zoneId = selectedZoneId.value;
+    if (zoneId == null) return false;
+
+    try {
+      final zoneDoc = await FirebaseFirestore.instance.collection('zone').doc(zoneId).get();
+      if (!zoneDoc.exists) return false;
+
+      final zoneData = zoneDoc.data() ?? {};
+      final adminPermissions = zoneData['adminPermissions'];
+      if (adminPermissions == null || adminPermissions is! Map) return false;
+
+      bool productCreateEnabled = false;
+      (adminPermissions as Map<String, dynamic>).forEach((adminId, perms) {
+        if (perms is Map && perms['productCreate'] == true) {
+          productCreateEnabled = true;
+        }
+      });
+
+      return productCreateEnabled;
+    } catch (e) {
+      print("❌ Error checking productCreate permission: $e");
+      return false;
+    }
   }
 
-  bool _rayCastIntersect(LatLng point, LatLng vertA, LatLng vertB) {
-    final px = point.latitude;
-    final py = point.longitude;
-    final ax = vertA.latitude;
-    final ay = vertA.longitude;
-    final bx = vertB.latitude;
-    final by = vertB.longitude;
 
-    return ((ay > py) != (by > py)) &&
-        (px < (bx - ax) * (py - ay) / (by - ay + 0.0) + ax);
-  }
 }
-
-

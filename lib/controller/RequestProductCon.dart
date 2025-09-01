@@ -2,36 +2,68 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../Models/RequestProductModel.dart';
 
 class RequestProductController extends GetxController {
   var products = <RequestProduct>[].obs;
 
+  // Zones
+  var zones = <Map<String, dynamic>>[].obs;
+  var selectedZoneId = Rxn<String>();
+
   @override
   void onInit() {
     super.onInit();
-    fetchPausedProductsByZone();
+    loadZonesAndProducts();
   }
 
-  /// Fetch products with status 'Paused' for current zone
-  Future<void> fetchPausedProductsByZone() async {
+  /// Load zones from SharedPreferences and fetch products for selected zone
+  Future<void> loadZonesAndProducts() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final zoneJson = prefs.getString('zoneData');
-      if (zoneJson == null) return;
+      final sessionJson = prefs.getString('adminSession');
+      if (sessionJson == null) return;
 
-      final zoneData = jsonDecode(zoneJson);
-      final zoneId = zoneData['zoneId'];
-      if (zoneId == null || zoneId.isEmpty) return;
+      final sessionData = jsonDecode(sessionJson);
+      final List<dynamic> zonesData = sessionData['zonesData'] ?? [];
+      zones.assignAll(zonesData.cast<Map<String, dynamic>>());
 
-      final productSnapshot = await FirebaseFirestore.instance
+      // Set default selected zone
+      final primaryZoneId = sessionData['primaryZoneId'];
+      if (primaryZoneId != null && zones.any((z) => z['zoneId'] == primaryZoneId)) {
+        selectedZoneId.value = primaryZoneId;
+      } else if (zones.isNotEmpty) {
+        selectedZoneId.value = zones.first['zoneId'];
+      }
+
+      // Fetch products for selected zone
+      if (selectedZoneId.value != null) {
+        await fetchProductsByZone(selectedZoneId.value!);
+      }
+    } catch (e) {
+      print("❌ Error loading zones: $e");
+    }
+  }
+
+  /// Called when admin selects a new zone
+  Future<void> onZoneChanged(String? newZoneId) async {
+    if (newZoneId == null || newZoneId == selectedZoneId.value) return;
+    selectedZoneId.value = newZoneId;
+    products.clear();
+    await fetchProductsByZone(newZoneId);
+  }
+  /// Fetch products for a specific zone
+  Future<void> fetchProductsByZone(String zoneId) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
           .collection('products')
           .where('zoneId', isEqualTo: zoneId)
-          .where('productStatus', isEqualTo: 'Pending')
+          // .where('status', isEqualTo: 'pending')
+          .where('status', whereIn: ['pending', 'Pending'])
+
           .get();
 
-      products.assignAll(productSnapshot.docs.map((doc) {
+      products.assignAll(snapshot.docs.map((doc) {
         final data = doc.data();
         return RequestProduct(
           id: doc.id,
@@ -40,34 +72,25 @@ class RequestProductController extends GetxController {
           quantity: int.tryParse(data['productQty'] ?? '0') ?? 0,
           sellerPrice: double.tryParse(data['yourprice'] ?? '0') ?? 0,
           sellingPrice: double.tryParse(data['productPrice'] ?? '0') ?? 0,
-          option:
-          (data['foodType'] ?? '').toString().toLowerCase() == 'veg' ? true : false,
+          option: (data['foodType'] ?? '').toString().toLowerCase() == 'veg',
           isApproved: false.obs,
           isRejected: false.obs,
         );
       }).toList());
     } catch (e) {
-      print("❌ Error fetching paused products: $e");
+      print("❌ Error fetching products for zone: $e");
     }
   }
 
   /// Approve product
-  /// Approve product
   Future<void> toggleApproval(int index) async {
     final product = products[index];
-
     try {
-      // Update Firestore
       await FirebaseFirestore.instance
           .collection('products')
           .doc(product.id)
-          .update({'productStatus': 'accepted'});
-
-      print("✅ Product ${product.name} approved and updated in Firestore");
-
-      // Remove from list (UI auto-updates via Obx)
+          .update({'status': 'accepted'});
       products.removeAt(index);
-
     } catch (e) {
       print("❌ Error approving product: $e");
     }
@@ -76,22 +99,14 @@ class RequestProductController extends GetxController {
   /// Reject product
   Future<void> rejectProduct(int index) async {
     final product = products[index];
-
     try {
-      // Update Firestore
       await FirebaseFirestore.instance
           .collection('products')
           .doc(product.id)
-          .update({'productStatus': 'Rejected'});
-
-      print("❌ Product ${product.name} rejected and updated in Firestore");
-
-      // Remove from list (UI auto-updates via Obx)
+          .update({'status': 'Rejected'});
       products.removeAt(index);
-
     } catch (e) {
       print("❌ Error rejecting product: $e");
     }
   }
-
 }

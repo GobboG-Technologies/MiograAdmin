@@ -2,38 +2,34 @@ import 'package:get/get.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'shopController.dart'; // Import ShopController to access the shops list
 
 class UpdateProductController extends GetxController {
   final String productId;
   UpdateProductController(this.productId);
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // Get instance of ShopController to access the list of shops
+  final ShopController _shopController = Get.find<ShopController>();
 
   // Observables
+  var isLoading = true.obs; // Added for initial loading state
   var productStatus = "Paused".obs;
   var foodType = "Veg".obs;
   var mainCategory = "Food".obs;
-  var selectedSubcategory = "".obs;
+  var selectedSubcategory = "".obs; // Initialize as empty string
   var selectedImageUrl = "".obs;
+  var selectedShopId = "".obs; // To hold the ID of the selected shop
 
   // Image picking
   Rx<XFile?> selectedImage = Rx<XFile?>(null);
   final ImagePicker _picker = ImagePicker();
 
   // Subcategories example list
-  List<String> subcategories = ['Tiffin',
-    'chinese',
-    'Tea & coffe',
-    'cake',
-    'Burger',
-    'Beef & Mutton',
-    'Biriyani',
-    'Pizza',
-    'Meals',
-    'Ice Cream & Shakes',
-    'Bakery',
-    'Chicken',];
+  List<String> subcategories = [
+    'Tiffin', 'chinese', 'Tea & coffe', 'cake', 'Burger', 'Beef & Mutton',
+    'Biriyani', 'Pizza', 'Meals', 'Ice Cream & Shakes', 'Bakery', 'Chicken',
+  ];
 
   // Text controllers
   TextEditingController productName = TextEditingController();
@@ -41,8 +37,7 @@ class UpdateProductController extends GetxController {
   TextEditingController yourPrice = TextEditingController();
   TextEditingController description = TextEditingController();
   TextEditingController productQty = TextEditingController();
-  TextEditingController shopId = TextEditingController();
-  TextEditingController shopName = TextEditingController();
+  // Removed shopId and shopName text controllers
 
   @override
   void onInit() {
@@ -52,6 +47,7 @@ class UpdateProductController extends GetxController {
 
   Future<void> fetchProductData() async {
     try {
+      isLoading.value = true; // Set loading to true
       final doc = await _firestore.collection('products').doc(productId).get();
 
       if (doc.exists) {
@@ -62,16 +58,12 @@ class UpdateProductController extends GetxController {
         yourPrice.text = data['yourprice']?.toString() ?? '';
         description.text = data['description'] ?? '';
         productQty.text = data['productQty']?.toString() ?? '';
-        shopId.text = data['shopId'] ?? '';
-        shopName.text = data['shopName'] ?? '';
 
-        // Add Pending status option if exists, else default to Paused
+        // Set the initial shop from the fetched data
+        selectedShopId.value = data['shopId']?.toString() ?? ''; // Ensure it's a string
+
         final status = data['productStatus'] ?? 'Paused';
-        if (['Paused', 'Visible', 'Pending'].contains(status)) {
-          productStatus.value = status;
-        } else {
-          productStatus.value = 'Paused';
-        }
+        productStatus.value = ['Paused', 'Visible', 'Pending'].contains(status) ? status : 'Paused';
 
         foodType.value = data['foodType'] ?? 'Veg';
         mainCategory.value = data['mainCategory'] ?? 'Food';
@@ -79,18 +71,20 @@ class UpdateProductController extends GetxController {
         selectedImageUrl.value = data['imageUrl'] ?? '';
       }
     } catch (e) {
+      Get.snackbar("Error", "Failed to fetch product data.",
+          backgroundColor: Colors.red, colorText: Colors.white);
       print("Error fetching product: $e");
+    } finally {
+      isLoading.value = false; // Set loading to false after data is fetched or error occurs
     }
   }
-
 
   Future<void> pickImage() async {
     try {
       final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null) {
         selectedImage.value = pickedFile;
-        // If you want, clear old image URL when new image selected
-        selectedImageUrl.value = '';
+        selectedImageUrl.value = ''; // Clear old image URL when new image selected
       }
     } catch (e) {
       print("Error picking image: $e");
@@ -98,24 +92,46 @@ class UpdateProductController extends GetxController {
   }
 
   Future<void> updateProduct() async {
+    if (selectedShopId.value.isEmpty) {
+      Get.snackbar("Error", "Please select a shop.",
+          backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+
     try {
       String imageUrlToSave = selectedImageUrl.value;
 
-      // TODO: If you want to upload new image to storage and get URL, do it here
-      // if (selectedImage.value != null) { upload image and assign imageUrlToSave = new url }
+      // TODO: Implement image upload logic if a new image is selected
+      // if (selectedImage.value != null) {
+      //   // 1. Upload selectedImage.value.path to your storage (e.g., Firebase Storage)
+      //   // 2. Get the download URL
+      //   // 3. Assign it to imageUrlToSave
+      // }
+
+      // Find the shop name from the ShopController's list
+      // Ensure shops list is not empty before attempting to find
+      String shopName = 'Unknown Shop';
+      if (_shopController.shops.isNotEmpty) {
+        final selectedShop = _shopController.shops.firstWhere(
+              (shop) => shop['id'].toString() == selectedShopId.value, // Compare string IDs
+          orElse: () => {'name': 'Unknown Shop'},
+        );
+        shopName = selectedShop['name'] ?? 'Unknown Shop';
+      }
+
 
       await _firestore.collection('products').doc(productId).update({
-        'name': productName.text,
-        'price': double.tryParse(productPrice.text) ?? 0,
-        'yourPrice': double.tryParse(yourPrice.text) ?? 0,
+        'productName': productName.text,
+        'productPrice': double.tryParse(productPrice.text) ?? 0,
+        'yourprice': double.tryParse(yourPrice.text) ?? 0,
         'description': description.text,
-        'quantity': int.tryParse(productQty.text) ?? 0,
+        'productQty': int.tryParse(productQty.text) ?? 0,
         'status': productStatus.value,
         'foodType': foodType.value,
         'mainCategory': mainCategory.value,
         'subCategory': selectedSubcategory.value,
-        'shopId': shopId.text,
-        'shopName': shopName.text,
+        'shopId': selectedShopId.value, // Use the selected shop ID
+        'shopName': shopName,         // Use the retrieved shop name
         'imageUrl': imageUrlToSave,
       });
 
@@ -135,8 +151,6 @@ class UpdateProductController extends GetxController {
     yourPrice.dispose();
     description.dispose();
     productQty.dispose();
-    shopId.dispose();
-    shopName.dispose();
     super.onClose();
   }
 }

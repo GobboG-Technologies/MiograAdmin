@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:async';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
@@ -15,6 +17,7 @@ class EditProductController extends GetxController {
   var productStatus = 'visible'.obs;
   var foodType = 'Veg'.obs;
   var mainCategory = 'Food'.obs;
+  var status = 'Paused'.obs;
   var shopId = TextEditingController();
   var shopName = TextEditingController();
 
@@ -27,7 +30,6 @@ class EditProductController extends GetxController {
   TextEditingController businesId = TextEditingController();
   TextEditingController yourprice = TextEditingController();
 
-  // ✅ FIXED: Subcategory handling
   var selectedSubcategory = ''.obs;
 
   final List<String> subcategories = [
@@ -45,70 +47,311 @@ class EditProductController extends GetxController {
     'Chicken',
   ];
 
-  /// Pick image from gallery (Web Compatible)
-  Future<void> pickImage() async {
+  // Cloud Function URL - UPDATE THIS after deploying your function
+  static const String CLOUD_FUNCTION_URL = 'https://us-central1-migora-f8f57.cloudfunctions.net/uploadProductImage';
+
+  @override
+  void onInit() {
+    super.onInit();
+    print("🚀 EditProductController initialized");
+
+    // Delay initialization to ensure stable connection
+    Future.delayed(Duration(seconds: 2), () async {
+      await testStorageMethod();
+    });
+  }
+
+  // Test which upload method to use
+  Future<void> testStorageMethod() async {
+    try {
+      final bool isDesktop = !kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+      if (isDesktop) {
+        print("🖥️ Desktop platform detected - will use Cloud Function for uploads");
+
+        // Test cloud function availability
+        try {
+          final response = await http.get(
+            Uri.parse(CLOUD_FUNCTION_URL),
+          ).timeout(Duration(seconds: 5));
+
+          if (response.statusCode == 405) {
+            // Expected response for GET request (function only accepts POST)
+            print("✅ Cloud Function is reachable and ready");
+            Get.snackbar(
+              "Desktop Mode ☁️",
+              "Image upload via Cloud Function enabled",
+              backgroundColor: Colors.blue[100],
+              colorText: Colors.blue[800],
+              duration: Duration(seconds: 3),
+              snackPosition: SnackPosition.BOTTOM,
+            );
+          }
+        } catch (e) {
+          print("⚠️ Cloud Function not reachable: $e");
+          Get.snackbar(
+            "Limited Mode ⚠️",
+            "Cloud upload unavailable - you can add products without images",
+            backgroundColor: Colors.orange[100],
+            colorText: Colors.orange[800],
+            duration: Duration(seconds: 4),
+            snackPosition: SnackPosition.BOTTOM,
+          );
+        }
+      } else {
+        print("📱 Web/Mobile platform - using standard Firebase Storage");
+        await testFirebaseStorage();
+      }
+    } catch (e) {
+      print("❌ Storage test failed: $e");
+    }
+  }
+
+  // Test standard Firebase Storage
+  Future<void> testFirebaseStorage() async {
+    try {
+      print("🧪 Testing Firebase Storage connection...");
+      final ref = FirebaseStorage.instance.ref();
+      print("✅ Firebase Storage is ready");
+
+      Get.snackbar(
+        "Storage Ready ✅",
+        "Image upload is available",
+        backgroundColor: Colors.green[100],
+        colorText: Colors.green[800],
+        duration: Duration(seconds: 2),
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } catch (e) {
+      print("⚠️ Firebase Storage test failed: $e");
+    }
+  }
+
+  // Pick image from the source provided (gallery or camera)
+  // UPDATED METHOD: Now takes an ImageSource as a parameter
+  Future<void> pickImage(ImageSource source) async {
+    // On desktop, only gallery is reliably supported by image_picker
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      if (source == ImageSource.camera) {
+        Get.snackbar(
+          "Unsupported Action",
+          "Camera is not available on desktop platforms.",
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+        );
+        return;
+      }
+    }
+
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1800,
-        maxHeight: 1800,
+        source: source, // Use the provided source
+        maxWidth: 1920,
+        maxHeight: 1920,
         imageQuality: 85,
       );
 
       if (pickedFile != null) {
-        print("Picked image path: ${pickedFile.path}");
+        final bytes = await pickedFile.readAsBytes();
+        const maxSize = 5 * 1024 * 1024; // 5MB limit
+
+        if (bytes.length > maxSize) {
+          Get.snackbar(
+            "File Too Large",
+            "Please select an image smaller than 5MB. Current size: ${(bytes.length / 1024 / 1024).toStringAsFixed(1)}MB",
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+            duration: Duration(seconds: 3),
+          );
+          return;
+        }
+
+        print("✅ Image selected: ${pickedFile.name} (${(bytes.length / 1024).toStringAsFixed(1)} KB)");
         selectedImage.value = pickedFile;
 
         Get.snackbar(
           "Success",
-          "Image selected successfully",
+          "Image selected: ${pickedFile.name}",
           backgroundColor: Colors.green,
           colorText: Colors.white,
-          duration: Duration(seconds: 1),
-        );
-      } else {
-        print("No image was selected");
-        Get.snackbar(
-            "No Selection",
-            "Please select an image from gallery",
-            backgroundColor: Colors.orange,
-            colorText: Colors.white
+          duration: Duration(seconds: 2),
         );
       }
     } catch (e) {
-      print("Error picking image: $e");
+      print("❌ Error picking image: $e");
+      String errorMessage = e.toString();
+      if (errorMessage.contains('camera')) {
+        errorMessage = "Could not access the camera. Please ensure you have granted camera permissions.";
+      } else if (errorMessage.contains('photo')) {
+        errorMessage = "Could not access the gallery. Please ensure you have granted photo permissions.";
+      }
       Get.snackbar(
-          "Error",
-          "Failed to pick image: $e",
-          backgroundColor: Colors.red,
-          colorText: Colors.white
+        "Error",
+        "Failed to pick image: $errorMessage",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
       );
     }
   }
 
-  /// Upload product to Firestore (Web Compatible)
-  Future<void> addProductToFirestore() async {
+
+  // Main upload method that chooses the right approach
+  Future<String> uploadImage() async {
+    if (selectedImage.value == null) return '';
+
+    final bool isDesktop = !kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+    if (isDesktop) {
+      // Use Cloud Function for desktop
+      return await uploadViaCloudFunction();
+    } else {
+      // Use standard Firebase Storage for web/mobile
+      return await uploadViaFirebaseStorage();
+    }
+  }
+
+  // Cloud Function upload method (for desktop)
+  Future<String> uploadViaCloudFunction() async {
+    if (selectedImage.value == null) return '';
+
     try {
-      // Validation: ensure required fields are filled including selected shop
+      print("☁️ Starting Cloud Function upload...");
+
+      // Read image as bytes
+      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
+      print("📊 Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+
+      // Check size before encoding
+      const maxSize = 5 * 1024 * 1024;
+      if (imageBytes.length > maxSize) {
+        throw Exception("Image too large. Maximum size is 5MB");
+      }
+
+      // Convert to base64
+      final String base64Image = base64Encode(imageBytes);
+
+      // Generate filename
+      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      print("📤 Uploading to Cloud Function: $CLOUD_FUNCTION_URL");
+
+      // Make request to Cloud Function
+      final response = await http.post(
+        Uri.parse(CLOUD_FUNCTION_URL),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'imageBase64': base64Image,
+          'fileName': fileName,
+          'productId': '', // Optional - can be used to auto-update product
+        }),
+      ).timeout(
+        Duration(seconds: 60), // Longer timeout for large images
+        onTimeout: () {
+          throw Exception('Upload timeout - please check your connection');
+        },
+      );
+
+      // Parse response
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['success'] == true) {
+          final String imageUrl = data['url'] ?? '';
+          print("✅ Cloud upload successful: $imageUrl");
+          return imageUrl;
+        } else {
+          throw Exception(data['error'] ?? 'Upload failed');
+        }
+      } else {
+        final errorData = jsonDecode(response.body);
+        throw Exception(errorData['error'] ?? 'Server error: ${response.statusCode}');
+      }
+
+    } catch (e) {
+      print("❌ Cloud function upload failed: $e");
+      throw Exception("Cloud upload failed: ${e.toString()}");
+    }
+  }
+
+  // Standard Firebase Storage upload (for web/mobile)
+  Future<String> uploadViaFirebaseStorage() async {
+    if (selectedImage.value == null) return '';
+
+    try {
+      print("🔥 Starting Firebase Storage upload...");
+
+      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
+      print("📊 Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+
+      const maxSize = 5 * 1024 * 1024;
+      if (imageBytes.length > maxSize) {
+        throw Exception("Image too large. Maximum size is 5MB");
+      }
+
+      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('products')
+          .child(fileName);
+
+      print("📁 Upload path: products/$fileName");
+
+      final UploadTask uploadTask = storageRef.putData(
+        imageBytes,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          cacheControl: 'public, max-age=3600',
+        ),
+      );
+
+      // Wait for upload to complete
+      final TaskSnapshot snapshot = await uploadTask;
+
+      // Get download URL
+      final String downloadURL = await snapshot.ref.getDownloadURL();
+
+      print("✅ Firebase Storage upload successful: $downloadURL");
+      return downloadURL;
+
+    } catch (e) {
+      print("❌ Firebase Storage upload failed: $e");
+      throw Exception("Storage upload failed: ${e.toString()}");
+    }
+  }
+
+  // Add product to Firestore (desktop-aware version)
+  Future<void> addProductToFirestoreDesktop() async {
+    await addProductToFirestore();
+  }
+
+  // Main method to add product to Firestore
+  Future<void> addProductToFirestore() async {
+    print("🔥 Starting product addition...");
+
+    try {
+      // Validation
       if (productName.text.trim().isEmpty ||
           productPrice.text.trim().isEmpty ||
           shopId.text.trim().isEmpty ||
           shopName.text.trim().isEmpty) {
         Get.snackbar(
-          "Validation",
-          "Please fill in required fields including selecting a shop",
+          "Validation Error",
+          "Please fill in all required fields",
           backgroundColor: Colors.orange,
           colorText: Colors.white,
         );
         return;
       }
 
-      // Fetch zoneId from SharedPreferences
+      // Get zone data
       final prefs = await SharedPreferences.getInstance();
       final zoneJson = prefs.getString('zoneData');
       String zoneId = '';
-
       if (zoneJson != null) {
         final zoneData = jsonDecode(zoneJson);
         zoneId = zoneData['zoneId'] ?? '';
@@ -116,20 +359,57 @@ class EditProductController extends GetxController {
 
       // Show loading dialog
       Get.dialog(
-        Center(
-          child: Container(
-            padding: EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: Colors.purple[900]),
-                SizedBox(height: 16),
-                Text("Adding product...", style: TextStyle(fontSize: 16)),
-              ],
+        WillPopScope(
+          onWillPop: () async => false,
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: EdgeInsets.all(24),
+                margin: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      color: Colors.purple[900],
+                      strokeWidth: 3,
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      selectedImage.value != null
+                          ? "Uploading Image..."
+                          : "Saving Product...",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple[900],
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      selectedImage.value != null
+                          ? _getPlatformMessage()
+                          : "Almost done...",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -138,46 +418,113 @@ class EditProductController extends GetxController {
 
       String imageUrl = '';
 
+      // Upload image if selected
       if (selectedImage.value != null) {
         try {
-          final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+          imageUrl = await uploadImage();
+          print("✅ Image uploaded successfully: $imageUrl");
+        } catch (imageError) {
+          print("❌ Image upload failed: $imageError");
 
-          final storage = FirebaseStorage.instanceFor(
-            bucket: 'migora-f8f57.appspot.com',
+          // Close loading dialog
+          if (Get.isDialogOpen == true) {
+            Get.back();
+          }
+
+          // Ask user if they want to continue without image
+          final bool? continueWithoutImage = await Get.dialog<bool>(
+            AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.warning_amber, color: Colors.orange, size: 28),
+                  SizedBox(width: 12),
+                  Expanded(child: Text("Image Upload Failed")),
+                ],
+              ),
+              content: Container(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Failed to upload image:",
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    SizedBox(height: 12),
+                    Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red[200]!),
+                      ),
+                      child: Text(
+                        imageError.toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red[600],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Text("Would you like to add the product without the image?"),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Get.back(result: false),
+                  child: Text("Cancel", style: TextStyle(color: Colors.grey[600])),
+                ),
+                ElevatedButton(
+                  onPressed: () => Get.back(result: true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple[900],
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text("Continue Without Image"),
+                ),
+              ],
+            ),
           );
 
-          final ref = storage.ref().child('product_images/$fileName');
-
-          TaskSnapshot snapshot;
-
-          if (kIsWeb) {
-            final bytes = await selectedImage.value!.readAsBytes();
-            snapshot = await ref.putData(bytes);
-            print("Web: Uploading ${bytes.length} bytes");
-          } else {
-            final file = File(selectedImage.value!.path);
-            if (await file.exists()) {
-              snapshot = await ref.putFile(file);
-              print("Mobile: Uploading file from ${file.path}");
-            } else {
-              throw Exception("File does not exist: ${selectedImage.value!.path}");
-            }
+          if (continueWithoutImage != true) {
+            return;
           }
 
-          if (snapshot.state == TaskState.success) {
-            imageUrl = await snapshot.ref.getDownloadURL();
-            print("Image uploaded successfully: $imageUrl");
-          } else {
-            throw Exception("Upload failed: ${snapshot.state}");
-          }
-        } catch (e) {
-          Get.back(); // Close loading dialog
-          print("Image upload error: $e");
-          Get.snackbar("Image Upload Failed", "$e",
-              backgroundColor: Colors.red, colorText: Colors.white);
-          return;
+          // Show loading dialog again
+          Get.dialog(
+            WillPopScope(
+              onWillPop: () async => false,
+              child: Center(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    padding: EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.purple[900]),
+                        SizedBox(height: 16),
+                        Text("Saving product...", style: TextStyle(fontSize: 16)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            barrierDismissible: false,
+          );
         }
       }
+
+      // Save to Firestore
+      print("📦 Adding product to Firestore...");
 
       final formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
@@ -191,51 +538,121 @@ class EditProductController extends GetxController {
         'businessId': businesId.text.trim(),
         'shopId': shopId.text.trim(),
         'shopName': shopName.text.trim(),
-        'zoneId': zoneId, // <-- added zoneId
+        'zoneId': zoneId,
         'productStatus': productStatus.value,
         'foodType': foodType.value,
         'mainCategory': mainCategory.value,
         'subCategory': selectedSubcategory.value,
         'imageUrl': imageUrl,
+        'needsImage': imageUrl.isEmpty, // Flag for products without images
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtFormatted': formattedDate,
+        'platform': _getPlatformName(),
+        'status': 'Paused',
+        'uploadMethod': imageUrl.isNotEmpty ? _getUploadMethod() : 'none',
       };
 
-      print("Adding product data: $productData");
+      final DocumentReference docRef = await FirebaseFirestore.instance
+          .collection('products')
+          .add(productData);
 
-      await FirebaseFirestore.instance.collection('products').add(productData);
+      await docRef.update({'documentId': docRef.id});
 
-      Get.back(); // Close loading dialog
+      // Close loading dialog
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
 
+      // Show success message
+      final bool hasImage = imageUrl.isNotEmpty;
       Get.snackbar(
-        "Success",
-        "Product Added Successfully",
+        "Success! 🎉",
+        "Product '${productName.text.trim()}' added successfully${hasImage ? ' with image' : ''}!",
         backgroundColor: Colors.green,
         colorText: Colors.white,
+        duration: Duration(seconds: 3),
+        snackPosition: SnackPosition.TOP,
       );
 
-      // Clear form after successful submission
+      // Clear form
       clearForm();
-    } catch (e) {
-      Get.back(); // Close loading dialog
-      print("Firestore upload error: $e");
+      print("✅ Product added successfully ${hasImage ? 'with image' : 'without image'}");
+
+    } catch (e, stackTrace) {
+      // Close loading dialog if open
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
+
+      print("❌ Error adding product: $e");
+      print("📚 Stack trace: $stackTrace");
+
       Get.snackbar(
         "Error",
-        "Failed to add product: $e",
+        "Failed to add product: ${e.toString()}",
         backgroundColor: Colors.red,
         colorText: Colors.white,
+        duration: Duration(seconds: 5),
+        snackPosition: SnackPosition.TOP,
       );
     }
   }
 
-
-  /// Get file extension from a file
-  String _getFileExtension(File file) {
-    final path = file.path;
-    final extension = path.split('.').last;
-    return extension.isNotEmpty ? '.${extension}' : '.jpg';
+  // Helper method to get platform name
+  String _getPlatformName() {
+    if (kIsWeb) return 'web';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isLinux) return 'linux';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return 'unknown';
   }
 
+  // Helper method to get upload method used
+  String _getUploadMethod() {
+    final bool isDesktop = !kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+    return isDesktop ? 'cloud_function' : 'firebase_storage';
+  }
+
+  // Helper method to get platform-specific message
+  String _getPlatformMessage() {
+    final bool isDesktop = !kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+    if (isDesktop) {
+      return "Using Cloud Function upload\nThis may take up to 1 minute";
+    } else {
+      return "This may take a few moments";
+    }
+  }
+
+  // Ensure connection stability (mainly for desktop)
+  Future<void> ensureConnectionStability() async {
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      print("🔌 Ensuring connection stability...");
+
+      // Small delay to ensure UI thread stability
+      await Future.delayed(Duration(milliseconds: 500));
+
+      // Test Firebase connection
+      try {
+        await FirebaseFirestore.instance
+            .collection('test')
+            .doc('ping')
+            .get(GetOptions(source: Source.server))
+            .timeout(Duration(seconds: 5));
+
+        print("✅ Firebase connection stable");
+      } catch (e) {
+        print("⚠️ Connection test failed: $e");
+        // Continue anyway - Firebase might reconnect
+      }
+    }
+  }
+
+  // Clear form fields
   void clearForm() {
     productName.clear();
     productPrice.clear();
@@ -247,10 +664,36 @@ class EditProductController extends GetxController {
     shopId.clear();
     shopName.clear();
     selectedSubcategory.value = '';
-    productStatus.value = 'Visible'; // or your default
-    foodType.value = 'Veg'; // or your default
-    mainCategory.value = 'Food'; // or your default
+    productStatus.value = 'visible';
+    foodType.value = 'Veg';
+    mainCategory.value = 'Food';
     selectedImage.value = null;
+  }
+
+  // Fetch shops by zone
+  Future<List<Map<String, dynamic>>> fetchShopsByZone(String zoneId) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('Shops')
+          .where('zoneId', isEqualTo: zoneId)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+
+      final shops = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'shopId': doc.id,
+          'shopName': data['name'] ?? '',
+          'address': data['address'] ?? '',
+          'image': data['profileImage'] ?? '',
+        };
+      }).toList();
+
+      return shops;
+    } catch (e) {
+      print("Error fetching shops: $e");
+      return [];
+    }
   }
 
   @override
@@ -265,33 +708,5 @@ class EditProductController extends GetxController {
     shopId.dispose();
     shopName.dispose();
     super.onClose();
-  }
-
-
-  Future<List<Map<String, dynamic>>> fetchShopsByZone(String zoneId) async {
-    try {
-      // Query shops by zoneId and status accepted
-      final snapshot = await FirebaseFirestore.instance
-          .collection('Shops')
-          .where('zoneId', isEqualTo: zoneId)
-          .where('status', isEqualTo: 'accepted')
-          .get();
-
-      // Map the data to required fields
-      final shops = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'shopId': doc.id, // Firestore document ID
-          'shopName': data['name'] ?? '',
-          'address': data['address'] ?? '',
-          'image': data['profileImage'] ?? '',
-        };
-      }).toList();
-
-      return shops;
-    } catch (e) {
-      print("Error fetching shops: $e");
-      return [];
-    }
   }
 }

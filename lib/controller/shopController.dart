@@ -30,8 +30,6 @@ class ShopController extends GetxController {
 
       final snapshot = await FirebaseFirestore.instance
           .collection('Shops')
-          .where('zoneId', isEqualTo: zoneId)
-          .where('status', isEqualTo: 'accepted')
           .get();
 
       shops.assignAll(snapshot.docs.map((doc) {
