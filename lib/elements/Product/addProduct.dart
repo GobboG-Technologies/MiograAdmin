@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:flutter/foundation.dart';
 import 'dart:io';
-import 'package:image_picker/image_picker.dart'; // Import ImageSource
+import 'package:image_picker/image_picker.dart';
 
 import '../../controller/EditProductController.dart';
 import '../../controller/shopController.dart';
@@ -12,7 +12,7 @@ class AddNewProductPage extends StatelessWidget {
   final EditProductController controller = Get.put(EditProductController());
   final ShopController controllerS = Get.put(ShopController());
 
-  // UPDATED: Method to show a dialog for choosing image source
+  // Method to show a dialog for choosing image source
   void _showImageSourceDialog(BuildContext context) {
     Get.bottomSheet(
       Container(
@@ -23,7 +23,7 @@ class AddNewProductPage extends StatelessWidget {
               leading: Icon(Icons.photo_library, color: Colors.purple[900]),
               title: Text('Pick from Gallery'),
               onTap: () {
-                Get.back(); // Close the bottom sheet
+                Get.back();
                 controller.pickImage(ImageSource.gallery);
               },
             ),
@@ -31,7 +31,7 @@ class AddNewProductPage extends StatelessWidget {
               leading: Icon(Icons.camera_alt, color: Colors.purple[900]),
               title: Text('Take a Photo'),
               onTap: () {
-                Get.back(); // Close the bottom sheet
+                Get.back();
                 controller.pickImage(ImageSource.camera);
               },
             ),
@@ -40,7 +40,6 @@ class AddNewProductPage extends StatelessWidget {
       ),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -80,10 +79,10 @@ class AddNewProductPage extends StatelessWidget {
                               ),
                               if (isDesktop)
                                 Text(
-                                  "Desktop Mode - Limited Features",
+                                  "Desktop Mode - Cloud Upload Available",
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: Colors.orange[700],
+                                    color: Colors.blue[700],
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -102,22 +101,22 @@ class AddNewProductPage extends StatelessWidget {
 
                       SizedBox(height: 30),
 
-                      // Desktop Warning Banner
+                      // Desktop Banner
                       if (isDesktop) ...[
                         Container(
                           padding: EdgeInsets.all(16),
                           margin: EdgeInsets.only(bottom: 20),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [Colors.amber[50]!, Colors.orange[50]!],
+                              colors: [Colors.blue[50]!, Colors.indigo[50]!],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
-                            border: Border.all(color: Colors.amber[400]!, width: 1.5),
+                            border: Border.all(color: Colors.blue[300]!, width: 1.5),
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.amber.withOpacity(0.1),
+                                color: Colors.blue.withOpacity(0.1),
                                 blurRadius: 8,
                                 offset: Offset(0, 2),
                               ),
@@ -128,12 +127,12 @@ class AddNewProductPage extends StatelessWidget {
                               Container(
                                 padding: EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.amber[100],
+                                  color: Colors.blue[100],
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
-                                  Icons.desktop_windows,
-                                  color: Colors.amber[800],
+                                  Icons.cloud_upload_outlined,
+                                  color: Colors.blue[800],
                                   size: 28,
                                 ),
                               ),
@@ -143,18 +142,18 @@ class AddNewProductPage extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      "Desktop Platform Detected",
+                                      "Desktop Platform - Cloud Upload Ready",
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
-                                        color: Colors.amber[900],
+                                        color: Colors.blue[900],
                                       ),
                                     ),
                                     SizedBox(height: 6),
                                     Text(
-                                      "Image upload is currently unavailable on desktop due to platform limitations.",
+                                      "Images will be uploaded via Cloud Function. This ensures compatibility across all desktop platforms.",
                                       style: TextStyle(
-                                        color: Colors.amber[800],
+                                        color: Colors.blue[700],
                                         fontSize: 13,
                                         height: 1.4,
                                       ),
@@ -165,19 +164,19 @@ class AddNewProductPage extends StatelessWidget {
                                       decoration: BoxDecoration(
                                         color: Colors.white,
                                         borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: Colors.amber[300]!),
+                                        border: Border.all(color: Colors.blue[300]!),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.lightbulb_outline,
-                                              size: 16, color: Colors.amber[700]),
+                                          Icon(Icons.info_outline,
+                                              size: 16, color: Colors.blue[700]),
                                           SizedBox(width: 6),
                                           Text(
-                                            "Tip: Add images later via web browser",
+                                            "Large images may take up to 2 minutes to upload",
                                             style: TextStyle(
                                               fontSize: 12,
-                                              color: Colors.amber[800],
+                                              color: Colors.blue[800],
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
@@ -208,7 +207,6 @@ class AddNewProductPage extends StatelessWidget {
                                 child: GestureDetector(
                                   onTap: () async {
                                     await controller.ensureConnectionStability();
-                                    // UPDATED: Show the dialog instead of picking directly
                                     _showImageSourceDialog(context);
                                   },
                                   child: Container(
@@ -233,91 +231,43 @@ class AddNewProductPage extends StatelessWidget {
                           );
                         }),
                       ] else ...[
-                        // Desktop placeholder for image
-                        Container(
-                          width: double.infinity,
-                          height: 250,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.grey[100]!, Colors.grey[200]!],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.grey[300]!,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                        // Desktop image upload with cloud function support
+                        Obx(() {
+                          return Stack(
                             children: [
-                              Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Icon(Icons.image_not_supported_outlined,
-                                      size: 80, color: Colors.grey[400]),
-                                  Positioned(
-                                    bottom: 0,
-                                    right: 0,
-                                    child: Container(
-                                      padding: EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red[400],
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(Icons.close,
-                                          size: 16, color: Colors.white),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: _buildDesktopImageWidget(),
+                              ),
+                              Positioned(
+                                bottom: 10,
+                                right: 10,
+                                child: GestureDetector(
+                                  onTap: () async {
+                                    await controller.ensureConnectionStability();
+                                    controller.pickImage(ImageSource.gallery);
+                                  },
+                                  child: Container(
+                                    padding: EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black26,
+                                          blurRadius: 8,
+                                          offset: Offset(0, 2),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: 16),
-                              Text(
-                                "Image Upload Not Available",
-                                style: TextStyle(
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              SizedBox(height: 8),
-                              Container(
-                                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[100],
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  "Desktop platform limitation",
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 12,
+                                    child: Icon(Icons.photo_library,
+                                        color: Colors.purple[900], size: 24),
                                   ),
                                 ),
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                "You can add images later using:",
-                                style: TextStyle(
-                                  color: Colors.grey[500],
-                                  fontSize: 11,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                "• Web browser at admin.migora.com\n• Mobile app",
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                textAlign: TextAlign.center,
                               ),
                             ],
-                          ),
-                        ),
+                          );
+                        }),
                       ],
 
                       SizedBox(height: 20),
@@ -534,85 +484,19 @@ class AddNewProductPage extends StatelessWidget {
 
                       SizedBox(height: 30),
 
-                      // Submit Button - Modified for desktop
+                      // Submit Button
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () async {
-                            print("🔘 ADD PRODUCT BUTTON PRESSED!");
+                            print("ADD PRODUCT BUTTON PRESSED!");
 
-                            // Stability check
-                            await controller.ensureConnectionStability();
-
-                            // Validation
-                            if (controller.productName.text.trim().isEmpty ||
-                                controller.productPrice.text.trim().isEmpty) {
-                              Get.snackbar(
-                                "Validation Error",
-                                "Please fill in Product Name and Price",
-                                backgroundColor: Colors.orange,
-                                colorText: Colors.white,
-                                snackPosition: SnackPosition.TOP,
-                              );
-                              return;
-                            }
-
-                            if (controller.shopId.text.trim().isEmpty) {
-                              Get.snackbar(
-                                "Validation Error",
-                                "Please select a shop",
-                                backgroundColor: Colors.orange,
-                                colorText: Colors.white,
-                                snackPosition: SnackPosition.TOP,
-                              );
-                              return;
-                            }
-
-                            // On desktop, skip image requirement
-                            if (!isDesktop && controller.selectedImage.value == null) {
-                              final proceed = await Get.dialog<bool>(
-                                AlertDialog(
-                                  title: Row(
-                                    children: [
-                                      Icon(Icons.image_outlined,
-                                          color: Colors.orange, size: 24),
-
-                                      SizedBox(width: 8),
-                                      Text("No Image Selected"),
-                                    ],
-                                  ),
-                                  content: Text(
-                                      "Would you like to add the product without an image?"),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Get.back(result: false),
-                                      child: Text("Cancel",
-                                          style: TextStyle(color: Colors.grey[600])),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () => Get.back(result: true),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.purple[900],
-                                      ),
-                                      child: Text("Continue Without Image",
-                                          style: TextStyle(color: Colors.white)),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (proceed != true) return;
-                            }
-
-                            // Call the appropriate method based on platform
+                            // Call the upload method
                             try {
-                              if (isDesktop) {
-                                await controller.addProductToFirestore();
-                              } else {
-                                await controller.addProductToFirestore();
-                              }
-                              print("✅ Product upload completed successfully!");
+                              await controller.addProductToFirestore();
+                              print("Product upload completed successfully!");
                             } catch (e) {
-                              print("❌ Product upload failed: $e");
+                              print("Product upload failed: $e");
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -629,7 +513,7 @@ class AddNewProductPage extends StatelessWidget {
                               SizedBox(width: 8),
                               Text(
                                 isDesktop
-                                    ? "Add Product (Without Image)"
+                                    ? "Add Product (Cloud Upload)"
                                     : "Add Product",
                                 style: TextStyle(
                                   fontSize: 16,
@@ -676,7 +560,7 @@ class AddNewProductPage extends StatelessWidget {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  "After adding the product, you can upload images by accessing the admin panel from a web browser or mobile app.",
+                                  "Desktop mode uses Cloud Function for image uploads. Large images may take up to 2 minutes to process.",
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.blue[800],
@@ -701,7 +585,72 @@ class AddNewProductPage extends StatelessWidget {
     );
   }
 
-  // Image widget method
+  // Desktop image widget
+  Widget _buildDesktopImageWidget() {
+    if (controller.selectedImage.value == null) {
+      return Container(
+        width: double.infinity,
+        height: 287,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.grey[200]!, Colors.grey[300]!],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_photo_alternate_outlined,
+                size: 80, color: Colors.grey[500]),
+            SizedBox(height: 12),
+            Text(
+              "Click gallery icon to add image",
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              "Supports JPG, PNG up to 5MB",
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 12,
+              ),
+            ),
+            SizedBox(height: 8),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Text(
+                "Desktop: Cloud Function Upload",
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.blue[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Image.file(
+      File(controller.selectedImage.value!.path),
+      width: double.infinity,
+      height: 287,
+      fit: BoxFit.cover,
+    );
+  }
+
+  // Image widget method for web/mobile
   Widget _buildImageWidget() {
     if (controller.selectedImage.value == null) {
       return Container(

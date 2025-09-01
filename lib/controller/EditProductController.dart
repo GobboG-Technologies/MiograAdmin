@@ -47,41 +47,42 @@ class EditProductController extends GetxController {
     'Chicken',
   ];
 
-  // Cloud Function URL - UPDATE THIS after deploying your function
+  // Cloud Function URL
   static const String CLOUD_FUNCTION_URL = 'https://us-central1-migora-f8f57.cloudfunctions.net/uploadProductImage';
 
   @override
   void onInit() {
     super.onInit();
-    print("🚀 EditProductController initialized");
+    print("EditProductController initialized");
 
-    // Delay initialization to ensure stable connection
     Future.delayed(Duration(seconds: 2), () async {
       await testStorageMethod();
     });
   }
 
+  // Platform detection helper
+  bool _isDesktopPlatform() {
+    return !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+  }
+
   // Test which upload method to use
   Future<void> testStorageMethod() async {
     try {
-      final bool isDesktop = !kIsWeb &&
-          (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+      final bool isDesktop = _isDesktopPlatform();
 
       if (isDesktop) {
-        print("🖥️ Desktop platform detected - will use Cloud Function for uploads");
+        print("Desktop platform detected - will use Cloud Function for uploads");
 
-        // Test cloud function availability
         try {
           final response = await http.get(
             Uri.parse(CLOUD_FUNCTION_URL),
-          ).timeout(Duration(seconds: 5));
+          ).timeout(Duration(seconds: 10));
 
-          if (response.statusCode == 405) {
-            // Expected response for GET request (function only accepts POST)
-            print("✅ Cloud Function is reachable and ready");
+          if (response.statusCode == 405 || response.statusCode == 200) {
+            print("Cloud Function is reachable and ready");
             Get.snackbar(
-              "Desktop Mode ☁️",
-              "Image upload via Cloud Function enabled",
+              "Desktop Mode",
+              "Cloud Function upload enabled",
               backgroundColor: Colors.blue[100],
               colorText: Colors.blue[800],
               duration: Duration(seconds: 3),
@@ -89,9 +90,9 @@ class EditProductController extends GetxController {
             );
           }
         } catch (e) {
-          print("⚠️ Cloud Function not reachable: $e");
+          print("Cloud Function not reachable: $e");
           Get.snackbar(
-            "Limited Mode ⚠️",
+            "Limited Mode",
             "Cloud upload unavailable - you can add products without images",
             backgroundColor: Colors.orange[100],
             colorText: Colors.orange[800],
@@ -100,23 +101,23 @@ class EditProductController extends GetxController {
           );
         }
       } else {
-        print("📱 Web/Mobile platform - using standard Firebase Storage");
+        print("Web/Mobile platform - using standard Firebase Storage");
         await testFirebaseStorage();
       }
     } catch (e) {
-      print("❌ Storage test failed: $e");
+      print("Storage test failed: $e");
     }
   }
 
   // Test standard Firebase Storage
   Future<void> testFirebaseStorage() async {
     try {
-      print("🧪 Testing Firebase Storage connection...");
+      print("Testing Firebase Storage connection...");
       final ref = FirebaseStorage.instance.ref();
-      print("✅ Firebase Storage is ready");
+      print("Firebase Storage is ready");
 
       Get.snackbar(
-        "Storage Ready ✅",
+        "Storage Ready",
         "Image upload is available",
         backgroundColor: Colors.green[100],
         colorText: Colors.green[800],
@@ -124,30 +125,26 @@ class EditProductController extends GetxController {
         snackPosition: SnackPosition.BOTTOM,
       );
     } catch (e) {
-      print("⚠️ Firebase Storage test failed: $e");
+      print("Firebase Storage test failed: $e");
     }
   }
 
-  // Pick image from the source provided (gallery or camera)
-  // UPDATED METHOD: Now takes an ImageSource as a parameter
+  // Pick image from the source provided
   Future<void> pickImage(ImageSource source) async {
-    // On desktop, only gallery is reliably supported by image_picker
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      if (source == ImageSource.camera) {
-        Get.snackbar(
-          "Unsupported Action",
-          "Camera is not available on desktop platforms.",
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-        );
-        return;
-      }
+    if (_isDesktopPlatform() && source == ImageSource.camera) {
+      Get.snackbar(
+        "Unsupported Action",
+        "Camera is not available on desktop platforms.",
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+      );
+      return;
     }
 
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
-        source: source, // Use the provided source
+        source: source,
         maxWidth: 1920,
         maxHeight: 1920,
         imageQuality: 85,
@@ -168,7 +165,7 @@ class EditProductController extends GetxController {
           return;
         }
 
-        print("✅ Image selected: ${pickedFile.name} (${(bytes.length / 1024).toStringAsFixed(1)} KB)");
+        print("Image selected: ${pickedFile.name} (${(bytes.length / 1024).toStringAsFixed(1)} KB)");
         selectedImage.value = pickedFile;
 
         Get.snackbar(
@@ -180,113 +177,110 @@ class EditProductController extends GetxController {
         );
       }
     } catch (e) {
-      print("❌ Error picking image: $e");
-      String errorMessage = e.toString();
-      if (errorMessage.contains('camera')) {
-        errorMessage = "Could not access the camera. Please ensure you have granted camera permissions.";
-      } else if (errorMessage.contains('photo')) {
-        errorMessage = "Could not access the gallery. Please ensure you have granted photo permissions.";
-      }
+      print("Error picking image: $e");
       Get.snackbar(
         "Error",
-        "Failed to pick image: $errorMessage",
+        "Failed to pick image: ${e.toString()}",
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
     }
   }
 
-
   // Main upload method that chooses the right approach
   Future<String> uploadImage() async {
     if (selectedImage.value == null) return '';
 
-    final bool isDesktop = !kIsWeb &&
-        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-
-    if (isDesktop) {
-      // Use Cloud Function for desktop
+    if (_isDesktopPlatform()) {
       return await uploadViaCloudFunction();
     } else {
-      // Use standard Firebase Storage for web/mobile
-      return await uploadViaFirebaseStorage();
+      return await uploadViaFirebaseStorageWithTimeout();
     }
   }
 
-  // Cloud Function upload method (for desktop)
+  // Cloud Function upload method
   Future<String> uploadViaCloudFunction() async {
     if (selectedImage.value == null) return '';
 
     try {
-      print("☁️ Starting Cloud Function upload...");
+      print("Starting Cloud Function upload...");
 
-      // Read image as bytes
       final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
-      print("📊 Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
 
-      // Check size before encoding
       const maxSize = 5 * 1024 * 1024;
       if (imageBytes.length > maxSize) {
         throw Exception("Image too large. Maximum size is 5MB");
       }
 
-      // Convert to base64
       final String base64Image = base64Encode(imageBytes);
-
-      // Generate filename
       final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      print("📤 Uploading to Cloud Function: $CLOUD_FUNCTION_URL");
+      print("Uploading to Cloud Function: $CLOUD_FUNCTION_URL");
 
-      // Make request to Cloud Function
       final response = await http.post(
         Uri.parse(CLOUD_FUNCTION_URL),
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: jsonEncode({
           'imageBase64': base64Image,
           'fileName': fileName,
-          'productId': '', // Optional - can be used to auto-update product
+          'productId': '',
         }),
       ).timeout(
-        Duration(seconds: 60), // Longer timeout for large images
+        Duration(seconds: 120),
         onTimeout: () {
           throw Exception('Upload timeout - please check your connection');
         },
       );
 
-      // Parse response
+      print("Cloud Function response status: ${response.statusCode}");
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
 
         if (data['success'] == true) {
           final String imageUrl = data['url'] ?? '';
-          print("✅ Cloud upload successful: $imageUrl");
+          print("Cloud upload successful: $imageUrl");
           return imageUrl;
         } else {
           throw Exception(data['error'] ?? 'Upload failed');
         }
       } else {
-        final errorData = jsonDecode(response.body);
-        throw Exception(errorData['error'] ?? 'Server error: ${response.statusCode}');
+        String errorMessage = 'Server error: ${response.statusCode}';
+        try {
+          final errorData = jsonDecode(response.body);
+          errorMessage = errorData['error'] ?? errorMessage;
+        } catch (e) {
+          // Use default error message
+        }
+        throw Exception(errorMessage);
       }
 
     } catch (e) {
-      print("❌ Cloud function upload failed: $e");
-      throw Exception("Cloud upload failed: ${e.toString()}");
+      print("Cloud function upload failed: $e");
+
+      if (e.toString().contains('timeout')) {
+        throw Exception("Upload timed out. Please check your internet connection.");
+      } else if (e.toString().contains('SocketException')) {
+        throw Exception("Network error. Please check your internet connection.");
+      } else {
+        throw Exception("Cloud upload failed: ${e.toString()}");
+      }
     }
   }
 
-  // Standard Firebase Storage upload (for web/mobile)
-  Future<String> uploadViaFirebaseStorage() async {
+  // Firebase Storage upload with timeout
+  Future<String> uploadViaFirebaseStorageWithTimeout() async {
     if (selectedImage.value == null) return '';
 
     try {
-      print("🔥 Starting Firebase Storage upload...");
+      print("Starting Firebase Storage upload...");
 
       final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
-      print("📊 Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
 
       const maxSize = 5 * 1024 * 1024;
       if (imageBytes.length > maxSize) {
@@ -299,7 +293,60 @@ class EditProductController extends GetxController {
           .child('products')
           .child(fileName);
 
-      print("📁 Upload path: products/$fileName");
+      final UploadTask uploadTask = storageRef.putData(
+        imageBytes,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          cacheControl: 'public, max-age=3600',
+        ),
+      );
+
+      final TaskSnapshot snapshot = await uploadTask.timeout(
+        Duration(seconds: 60),
+        onTimeout: () {
+          uploadTask.cancel();
+          throw TimeoutException('Upload timeout after 60 seconds', Duration(seconds: 60));
+        },
+      );
+
+      final String downloadURL = await snapshot.ref.getDownloadURL();
+      print("Firebase Storage upload successful: $downloadURL");
+      return downloadURL;
+
+    } catch (e) {
+      print("Firebase Storage upload failed: $e");
+
+      if (_isDesktopPlatform()) {
+        print("Fallback: Trying cloud function after Firebase failure");
+        return await uploadViaCloudFunction();
+      }
+
+      throw Exception("Storage upload failed: ${e.toString()}");
+    }
+  }
+
+  // Standard Firebase Storage upload (legacy method)
+  Future<String> uploadViaFirebaseStorage() async {
+    if (selectedImage.value == null) return '';
+
+    try {
+      print("Starting Firebase Storage upload...");
+
+      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
+      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+
+      const maxSize = 5 * 1024 * 1024;
+      if (imageBytes.length > maxSize) {
+        throw Exception("Image too large. Maximum size is 5MB");
+      }
+
+      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('products')
+          .child(fileName);
+
+      print("Upload path: products/$fileName");
 
       final UploadTask uploadTask = storageRef.putData(
         imageBytes,
@@ -309,44 +356,45 @@ class EditProductController extends GetxController {
         ),
       );
 
-      // Wait for upload to complete
       final TaskSnapshot snapshot = await uploadTask;
-
-      // Get download URL
       final String downloadURL = await snapshot.ref.getDownloadURL();
 
-      print("✅ Firebase Storage upload successful: $downloadURL");
+      print("Firebase Storage upload successful: $downloadURL");
       return downloadURL;
 
     } catch (e) {
-      print("❌ Firebase Storage upload failed: $e");
+      print("Firebase Storage upload failed: $e");
       throw Exception("Storage upload failed: ${e.toString()}");
     }
   }
 
-  // Add product to Firestore (desktop-aware version)
-  Future<void> addProductToFirestoreDesktop() async {
-    await addProductToFirestore();
-  }
-
-  // Main method to add product to Firestore
+  // Add product to Firestore
   Future<void> addProductToFirestore() async {
-    print("🔥 Starting product addition...");
+    print("Starting product addition...");
 
     try {
-      // Validation
-      if (productName.text.trim().isEmpty ||
-          productPrice.text.trim().isEmpty ||
-          shopId.text.trim().isEmpty ||
-          shopName.text.trim().isEmpty) {
-        Get.snackbar(
-          "Validation Error",
-          "Please fill in all required fields",
-          backgroundColor: Colors.orange,
-          colorText: Colors.white,
-        );
-        return;
-      }
+      // Basic validation
+      // if (productName.text.trim().isEmpty || productPrice.text.trim().isEmpty) {
+      //   Get.snackbar(
+      //     "Validation Error",
+      //     "Please fill in Product Name and Price",
+      //     backgroundColor: Colors.orange,
+      //     colorText: Colors.white,
+      //     snackPosition: SnackPosition.TOP,
+      //   );
+      //   return;
+      // }
+
+     // if (shopId.text.trim().isEmpty) {
+      //   Get.snackbar(
+      //     "Validation Error",
+      //     "Please select a shop",
+      //     backgroundColor: Colors.orange,
+      //     colorText: Colors.white,
+      //     snackPosition: SnackPosition.TOP,
+      //   );
+      //   return;
+      // }`
 
       // Get zone data
       final prefs = await SharedPreferences.getInstance();
@@ -358,6 +406,17 @@ class EditProductController extends GetxController {
       }
 
       // Show loading dialog
+      String loadingTitle = "Adding Product...";
+      String loadingMessage = "Please wait...";
+
+      if (_isDesktopPlatform() && selectedImage.value != null) {
+        loadingTitle = "Uploading via Cloud Function...";
+        loadingMessage = "This may take up to 2 minutes for large images";
+      } else if (selectedImage.value != null) {
+        loadingTitle = "Uploading Image...";
+        loadingMessage = "This may take a few moments";
+      }
+
       Get.dialog(
         WillPopScope(
           onWillPop: () async => false,
@@ -387,9 +446,7 @@ class EditProductController extends GetxController {
                     ),
                     SizedBox(height: 20),
                     Text(
-                      selectedImage.value != null
-                          ? "Uploading Image..."
-                          : "Saving Product...",
+                      loadingTitle,
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -398,9 +455,7 @@ class EditProductController extends GetxController {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      selectedImage.value != null
-                          ? _getPlatformMessage()
-                          : "Almost done...",
+                      loadingMessage,
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.grey[600],
@@ -422,16 +477,14 @@ class EditProductController extends GetxController {
       if (selectedImage.value != null) {
         try {
           imageUrl = await uploadImage();
-          print("✅ Image uploaded successfully: $imageUrl");
+          print("Image uploaded successfully: $imageUrl");
         } catch (imageError) {
-          print("❌ Image upload failed: $imageError");
+          print("Image upload failed: $imageError");
 
-          // Close loading dialog
           if (Get.isDialogOpen == true) {
             Get.back();
           }
 
-          // Ask user if they want to continue without image
           final bool? continueWithoutImage = await Get.dialog<bool>(
             AlertDialog(
               title: Row(
@@ -493,7 +546,6 @@ class EditProductController extends GetxController {
             return;
           }
 
-          // Show loading dialog again
           Get.dialog(
             WillPopScope(
               onWillPop: () async => false,
@@ -524,7 +576,7 @@ class EditProductController extends GetxController {
       }
 
       // Save to Firestore
-      print("📦 Adding product to Firestore...");
+      print("Adding product to Firestore...");
 
       final formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
@@ -544,7 +596,7 @@ class EditProductController extends GetxController {
         'mainCategory': mainCategory.value,
         'subCategory': selectedSubcategory.value,
         'imageUrl': imageUrl,
-        'needsImage': imageUrl.isEmpty, // Flag for products without images
+        'needsImage': imageUrl.isEmpty,
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtFormatted': formattedDate,
         'platform': _getPlatformName(),
@@ -558,15 +610,13 @@ class EditProductController extends GetxController {
 
       await docRef.update({'documentId': docRef.id});
 
-      // Close loading dialog
       if (Get.isDialogOpen == true) {
         Get.back();
       }
 
-      // Show success message
       final bool hasImage = imageUrl.isNotEmpty;
       Get.snackbar(
-        "Success! 🎉",
+        "Success!",
         "Product '${productName.text.trim()}' added successfully${hasImage ? ' with image' : ''}!",
         backgroundColor: Colors.green,
         colorText: Colors.white,
@@ -574,22 +624,29 @@ class EditProductController extends GetxController {
         snackPosition: SnackPosition.TOP,
       );
 
-      // Clear form
       clearForm();
-      print("✅ Product added successfully ${hasImage ? 'with image' : 'without image'}");
+      print("Product added successfully ${hasImage ? 'with image' : 'without image'}");
 
     } catch (e, stackTrace) {
-      // Close loading dialog if open
       if (Get.isDialogOpen == true) {
         Get.back();
       }
 
-      print("❌ Error adding product: $e");
-      print("📚 Stack trace: $stackTrace");
+      print("Error adding product: $e");
+
+      String userFriendlyError = "Failed to add product";
+
+      if (e.toString().contains('timeout')) {
+        userFriendlyError = "Upload timed out. Please check your internet connection.";
+      } else if (e.toString().contains('Network')) {
+        userFriendlyError = "Network error. Please check your internet connection.";
+      } else if (e.toString().contains('too large')) {
+        userFriendlyError = "Image is too large. Please select an image smaller than 5MB.";
+      }
 
       Get.snackbar(
-        "Error",
-        "Failed to add product: ${e.toString()}",
+        "Upload Failed",
+        userFriendlyError,
         backgroundColor: Colors.red,
         colorText: Colors.white,
         duration: Duration(seconds: 5),
@@ -598,56 +655,46 @@ class EditProductController extends GetxController {
     }
   }
 
-  // Helper method to get platform name
+  // Helper methods
   String _getPlatformName() {
     if (kIsWeb) return 'web';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
+    if (!kIsWeb) {
+      if (Platform.isWindows) return 'windows';
+      if (Platform.isLinux) return 'linux';
+      if (Platform.isMacOS) return 'macos';
+      if (Platform.isAndroid) return 'android';
+      if (Platform.isIOS) return 'ios';
+    }
     return 'unknown';
   }
 
-  // Helper method to get upload method used
   String _getUploadMethod() {
-    final bool isDesktop = !kIsWeb &&
-        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-    return isDesktop ? 'cloud_function' : 'firebase_storage';
+    return _isDesktopPlatform() ? 'cloud_function' : 'firebase_storage';
   }
 
-  // Helper method to get platform-specific message
   String _getPlatformMessage() {
-    final bool isDesktop = !kIsWeb &&
-        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-
-    if (isDesktop) {
-      return "Using Cloud Function upload\nThis may take up to 1 minute";
+    if (_isDesktopPlatform()) {
+      return "Using Cloud Function upload\nThis may take up to 2 minutes";
     } else {
       return "This may take a few moments";
     }
   }
 
-  // Ensure connection stability (mainly for desktop)
+  // Ensure connection stability
   Future<void> ensureConnectionStability() async {
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-      print("🔌 Ensuring connection stability...");
-
-      // Small delay to ensure UI thread stability
+    if (_isDesktopPlatform()) {
+      print("Ensuring connection stability...");
       await Future.delayed(Duration(milliseconds: 500));
 
-      // Test Firebase connection
       try {
         await FirebaseFirestore.instance
             .collection('test')
             .doc('ping')
             .get(GetOptions(source: Source.server))
             .timeout(Duration(seconds: 5));
-
-        print("✅ Firebase connection stable");
+        print("Firebase connection stable");
       } catch (e) {
-        print("⚠️ Connection test failed: $e");
-        // Continue anyway - Firebase might reconnect
+        print("Connection test failed: $e");
       }
     }
   }
