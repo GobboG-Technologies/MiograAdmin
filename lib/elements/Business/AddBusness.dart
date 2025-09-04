@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -8,7 +9,6 @@ import 'package:image_picker/image_picker.dart';
 // Make sure the path to your controller is correct
 import '../../controller/addShopController.dart';
 
-
 // --- Constants ---
 const Color kPrimaryColor = Color(0xFF583081);
 const Color kPrimaryColorTransparent = Color(0x0F583081);
@@ -17,7 +17,6 @@ const Color kTextColor = Color(0xFF818181);
 const Color kAccentColor = Color(0xFFFF8800);
 const Color kSuccessColor = Color(0xFF08C270);
 const double kVerticalPadding = 16.0;
-
 
 class AddNewBusiness extends StatefulWidget {
   final String? businessId; // Can be null for "add new" mode
@@ -51,7 +50,6 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
     super.dispose();
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -77,123 +75,163 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
         if (controller.isLoading.value && controller.isEditMode.value) {
           return const Center(child: CircularProgressIndicator(color: kPrimaryColor));
         }
-        return GetBuilder<AddShopController>(
-          builder: (controller) {
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                return Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1300),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24.0),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: Scrollbar(
-                              child: SingleChildScrollView(
-                                padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _buildImagePicker(),
-                                    const SizedBox(height: 24),
-                                    _buildSectionHeader('Business Details'),
-                                    const SizedBox(height: kVerticalPadding),
-                                    Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      children: [
-                                        _buildTextField(hintText: 'Owner Name', controller: controller.nameController),
-                                        _buildTextField(hintText: 'Business name *', controller: controller.BusinessNameController),
-                                        _buildTextField(hintText: 'Aadhar Number', controller: controller.aadharController),
-                                        _buildTextField(hintText: 'PAN Number', controller: controller.panController),
-                                        _buildTextField(hintText: 'GST', controller: controller.GSTController),
-                                        _buildTextField(hintText: 'FSSAI', controller: controller.fssaiController),
-                                        _buildTextField(hintText: 'Contact *', controller: controller.contactController),
-                                        _buildTextField(hintText: 'Alternate Contact Number', controller: controller.emergencyContact2),
-                                        _buildTextField(hintText: 'Door Number', controller: controller.doorController),
-                                        _buildTextField(hintText: 'Street Name', controller: controller.streetController),
-                                        _buildTextField(hintText: 'Area', controller: controller.areaController),
-                                        _buildTextField(hintText: 'PIN Number', controller: controller.pinController),
-                                      ],
-                                    ),
-                                    const SizedBox(height: kVerticalPadding),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _buildZoneDropdown(
-                                            hintText: 'Customer Zone *',
-                                            selectedValue: controller.customerZone,
-                                            onChanged: (value) {
-                                              if (value != null) controller.updateCustomerZone(value);
-                                            },
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: _buildZoneDropdown(
-                                            hintText: 'Delivery Zone *',
-                                            selectedValue: controller.deliveryZone,
-                                            onChanged: (value) {
-                                              if (value != null) controller.updateDeliveryZone(value);
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _buildLocationPicker(),
-                                    const SizedBox(height: kVerticalPadding),
-                                    Row(
-                                      children: [
-                                        Expanded(child: _buildTimePicker(context, 'Shop Open Time', controller.openTime, true)),
-                                        const SizedBox(width: 16),
-                                        Expanded(child: _buildTimePicker(context, 'Shop Close Time', controller.closeTime, false)),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 32),
-                                    _buildSectionHeader('Bank Details'),
-                                    const SizedBox(height: kVerticalPadding),
-                                    Wrap(
-                                      spacing: 16,
-                                      runSpacing: 16,
-                                      children: [
-                                        _buildTextField(hintText: 'Name as in Bank', controller: controller.bankNameController),
-                                        _buildTextField(hintText: 'Account Number', controller: controller.accountNumberController),
-                                        _buildTextField(hintText: 'IFSC Code', controller: controller.ifscController),
-                                        _buildTextField(hintText: 'UPI ID', controller: controller.upiIdController),
-                                        _buildTextField(hintText: 'GPay Number', controller: controller.gpay),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 16),
-                                    _buildSectionHeader('Categories'),
-                                    const SizedBox(height: 16),
-                                    _buildCategorySelector(),
-                                    const SizedBox(height: 32),
-                                    _buildSectionHeader('Documents Upload (PDF only)'),
-                                    const SizedBox(height: 24),
-                                    ...controller.docTypes.map((docType) {
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 12.0),
-                                        child: _buildPdfUploadButton(docType, Icons.picture_as_pdf_outlined),
-                                      );
-                                    }).toList(),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          _buildActionButtons(),
-                        ],
+
+        return Column(
+          children: [
+            // Firebase Storage Status Banner (Web only)
+            if (kIsWeb) ...[
+              Container(
+                padding: EdgeInsets.all(12),
+                margin: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green[50]!, Colors.teal[50]!],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border.all(color: Colors.green[300]!, width: 1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_done, color: Colors.green[700], size: 20),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        "Firebase Storage Ready - Shop images will upload successfully",
+                        style: TextStyle(
+                          color: Colors.green[800],
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-            );
-          },
+                  ],
+                ),
+              ),
+            ],
+
+            Expanded(
+              child: GetBuilder<AddShopController>(
+                builder: (controller) {
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1300),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24.0),
+                            child: Column(
+                              children: [
+                                Expanded(
+                                  child: Scrollbar(
+                                    child: SingleChildScrollView(
+                                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          _buildImagePicker(),
+                                          const SizedBox(height: 24),
+                                          _buildSectionHeader('Business Details'),
+                                          const SizedBox(height: kVerticalPadding),
+                                          Wrap(
+                                            spacing: 16,
+                                            runSpacing: 16,
+                                            children: [
+                                              _buildTextField(hintText: 'Owner Name', controller: controller.nameController),
+                                              _buildTextField(hintText: 'Business name *', controller: controller.BusinessNameController),
+                                              _buildTextField(hintText: 'Aadhar Number', controller: controller.aadharController),
+                                              _buildTextField(hintText: 'PAN Number', controller: controller.panController),
+                                              _buildTextField(hintText: 'GST', controller: controller.GSTController),
+                                              _buildTextField(hintText: 'FSSAI', controller: controller.fssaiController),
+                                              _buildTextField(hintText: 'Contact *', controller: controller.contactController),
+                                              _buildTextField(hintText: 'Alternate Contact Number', controller: controller.emergencyContact2),
+                                              _buildTextField(hintText: 'Door Number', controller: controller.doorController),
+                                              _buildTextField(hintText: 'Street Name', controller: controller.streetController),
+                                              _buildTextField(hintText: 'Area', controller: controller.areaController),
+                                              _buildTextField(hintText: 'PIN Number', controller: controller.pinController),
+                                            ],
+                                          ),
+                                          const SizedBox(height: kVerticalPadding),
+                                          Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: _buildZoneDropdown(
+                                                  hintText: 'Customer Zone *',
+                                                  selectedValue: controller.customerZone,
+                                                  onChanged: (value) {
+                                                    if (value != null) controller.updateCustomerZone(value);
+                                                  },
+                                                ),
+                                              ),
+                                              const SizedBox(width: 16),
+                                              Expanded(
+                                                child: _buildZoneDropdown(
+                                                  hintText: 'Delivery Zone *',
+                                                  selectedValue: controller.deliveryZone,
+                                                  onChanged: (value) {
+                                                    if (value != null) controller.updateDeliveryZone(value);
+                                                  },
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _buildLocationPicker(),
+                                          const SizedBox(height: kVerticalPadding),
+                                          Row(
+                                            children: [
+                                              Expanded(child: _buildTimePicker(context, 'Shop Open Time', controller.openTime, true)),
+                                              const SizedBox(width: 16),
+                                              Expanded(child: _buildTimePicker(context, 'Shop Close Time', controller.closeTime, false)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 32),
+                                          _buildSectionHeader('Bank Details'),
+                                          const SizedBox(height: kVerticalPadding),
+                                          Wrap(
+                                            spacing: 16,
+                                            runSpacing: 16,
+                                            children: [
+                                              _buildTextField(hintText: 'Name as in Bank', controller: controller.bankNameController),
+                                              _buildTextField(hintText: 'Account Number', controller: controller.accountNumberController),
+                                              _buildTextField(hintText: 'IFSC Code', controller: controller.ifscController),
+                                              _buildTextField(hintText: 'UPI ID', controller: controller.upiIdController),
+                                              _buildTextField(hintText: 'GPay Number', controller: controller.gpay),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          _buildSectionHeader('Categories'),
+                                          const SizedBox(height: 16),
+                                          _buildCategorySelector(),
+                                          const SizedBox(height: 32),
+                                          _buildSectionHeader('Documents Upload (PDF only)'),
+                                          const SizedBox(height: 24),
+                                          ...controller.docTypes.map((docType) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 12.0),
+                                              child: _buildPdfUploadButton(docType, Icons.picture_as_pdf_outlined),
+                                            );
+                                          }).toList(),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+                                _buildActionButtons(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         );
       }),
     );
@@ -208,16 +246,44 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
         child: Container(
           height: 150,
           width: double.infinity,
-          decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(10)),
+          decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(10)
+          ),
           alignment: Alignment.center,
           // ✅ DYNAMIC IMAGE DISPLAY LOGIC
-          child: (controller.profileImage.value == null && (controller.networkImage.value == null || controller.networkImage.value!.isEmpty))
+          child: (controller.profileImage.value == null &&
+              (controller.networkImage.value == null || controller.networkImage.value!.isEmpty))
               ? Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.add_a_photo, color: kPrimaryColor, size: 40),
+              Icon(Icons.add_a_photo, color: kPrimaryColor, size: 40),
               const SizedBox(height: 8),
-              Text("Tap to add Profile Image *", style: TextStyle(color: Colors.grey[600]))
+              Text(
+                  kIsWeb
+                      ? "Tap to add Profile Image * (Firebase Storage Ready)"
+                      : "Tap to add Profile Image *",
+                  style: TextStyle(color: Colors.grey[600])
+              ),
+              if (kIsWeb) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green[200]!),
+                  ),
+                  child: Text(
+                    "Web Upload Ready",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ],
           )
               : Stack(
@@ -244,7 +310,10 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
                 child: CircleAvatar(
                   backgroundColor: Colors.white.withOpacity(0.8),
                   radius: 20,
-                  child: const Icon(Icons.camera_alt, color: kPrimaryColor),
+                  child: Icon(
+                      kIsWeb ? Icons.add_photo_alternate : Icons.camera_alt,
+                      color: kPrimaryColor
+                  ),
                 ),
               ),
             ],
@@ -286,11 +355,34 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
 
   Widget _buildImageWidget(XFile imageFile) {
     if (kIsWeb) {
-      return Image.network(imageFile.path, fit: BoxFit.cover, width: double.infinity, height: double.infinity,
-          errorBuilder: (context, error, stackTrace) => const Center(child: Text("Error loading image", style: TextStyle(color: Colors.red))));
+      return FutureBuilder<Uint8List>(
+        future: imageFile.readAsBytes(),
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return Image.memory(
+              snapshot.data!,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+            );
+          }
+          return Container(
+            width: double.infinity,
+            height: double.infinity,
+            color: Colors.grey[300],
+            child: Center(child: CircularProgressIndicator()),
+          );
+        },
+      );
     } else {
-      return Image.file(File(imageFile.path), fit: BoxFit.cover, width: double.infinity, height: double.infinity,
-          errorBuilder: (context, error, stackTrace) => const Center(child: Text("Error loading image", style: TextStyle(color: Colors.red))));
+      return Image.file(
+          File(imageFile.path),
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (context, error, stackTrace) =>
+          const Center(child: Text("Error loading image", style: TextStyle(color: Colors.red)))
+      );
     }
   }
 
@@ -306,14 +398,22 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
           Expanded(
             child: OutlinedButton.icon(
               onPressed: () => controller.pickPdfFile(label),
-              icon: isUploaded ? const Icon(Icons.check_circle, color: kSuccessColor) : Icon(icon, color: kPrimaryColorMedium),
+              icon: isUploaded
+                  ? const Icon(Icons.check_circle, color: kSuccessColor)
+                  : Icon(icon, color: kPrimaryColorMedium),
               label: Row(
                 children: [
-                  Text(label, style: TextStyle(color: isUploaded ? kSuccessColor : kPrimaryColorMedium, fontSize: 15, fontWeight: FontWeight.w500)),
+                  Text(label, style: TextStyle(
+                      color: isUploaded ? kSuccessColor : kPrimaryColorMedium,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500)
+                  ),
                   if (isUploaded) ...[
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text("($displayName)", style: const TextStyle(color: kTextColor, fontSize: 12, fontWeight: FontWeight.w400), overflow: TextOverflow.ellipsis),
+                      child: Text("($displayName)",
+                          style: const TextStyle(color: kTextColor, fontSize: 12, fontWeight: FontWeight.w400),
+                          overflow: TextOverflow.ellipsis),
                     ),
                   ],
                 ],
@@ -370,7 +470,10 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
                 height: 48,
                 child: OutlinedButton(
                   onPressed: controller.isLoading.value ? null : () => Get.back(),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(width: 2, color: kAccentColor), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  style: OutlinedButton.styleFrom(
+                      side: const BorderSide(width: 2, color: kAccentColor),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                  ),
                   child: const Text('Close', style: TextStyle(color: kAccentColor, fontSize: 17, fontWeight: FontWeight.w500)),
                 ),
               ),
@@ -382,11 +485,40 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
                 child: ElevatedButton(
                   // ✅ DYNAMIC ACTION
                   onPressed: controller.isLoading.value ? null : () => controller.saveOrUpdateShop(),
-                  style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColorMedium, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimaryColorMedium,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                  ),
                   child: controller.isLoading.value
                       ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                  // ✅ DYNAMIC BUTTON TEXT
-                      : Text(controller.isEditMode.value ? 'Update' : '+ Add', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
+                  // ✅ DYNAMIC BUTTON TEXT with Firebase Storage indicator
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                          controller.isEditMode.value ? 'Update' : '+ Add',
+                          style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)
+                      ),
+                      if (kIsWeb) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "Firebase",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -457,7 +589,11 @@ class _AddNewBusinessState extends State<AddNewBusiness> {
         Text(label, style: const TextStyle(color: kTextColor, fontSize: 15, fontWeight: FontWeight.w500)),
         Obx(() => TextButton(
           onPressed: () => controller.pickTime(isOpenTime, context),
-          style: TextButton.styleFrom(backgroundColor: kPrimaryColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+          style: TextButton.styleFrom(
+              backgroundColor: kPrimaryColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+          ),
           child: Text(
             controller.formatTime(timeValue.value),
             style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),

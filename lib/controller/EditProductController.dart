@@ -11,6 +11,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:html' as html show FileUploadInputElement, FileReader, Blob, File;
 
 class EditProductController extends GetxController {
   var selectedImage = Rx<XFile?>(null);
@@ -47,78 +48,28 @@ class EditProductController extends GetxController {
     'Chicken',
   ];
 
-  // Cloud Function URL
-  static const String CLOUD_FUNCTION_URL = 'https://us-central1-migora-f8f57.cloudfunctions.net/uploadProductImage';
-
   @override
   void onInit() {
     super.onInit();
     print("EditProductController initialized");
-
     Future.delayed(Duration(seconds: 2), () async {
       await testStorageMethod();
     });
   }
 
-  // Platform detection helper
-  bool _isDesktopPlatform() {
-    return !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-  }
-
-  // Test which upload method to use
+  // Test Firebase Storage (we know this works!)
   Future<void> testStorageMethod() async {
     try {
-      final bool isDesktop = _isDesktopPlatform();
-
-      if (isDesktop) {
-        print("Desktop platform detected - will use Cloud Function for uploads");
-
-        try {
-          final response = await http.get(
-            Uri.parse(CLOUD_FUNCTION_URL),
-          ).timeout(Duration(seconds: 10));
-
-          if (response.statusCode == 405 || response.statusCode == 200) {
-            print("Cloud Function is reachable and ready");
-            Get.snackbar(
-              "Desktop Mode",
-              "Cloud Function upload enabled",
-              backgroundColor: Colors.blue[100],
-              colorText: Colors.blue[800],
-              duration: Duration(seconds: 3),
-              snackPosition: SnackPosition.BOTTOM,
-            );
-          }
-        } catch (e) {
-          print("Cloud Function not reachable: $e");
-          Get.snackbar(
-            "Limited Mode",
-            "Cloud upload unavailable - you can add products without images",
-            backgroundColor: Colors.orange[100],
-            colorText: Colors.orange[800],
-            duration: Duration(seconds: 4),
-            snackPosition: SnackPosition.BOTTOM,
-          );
-        }
-      } else {
-        print("Web/Mobile platform - using standard Firebase Storage");
-        await testFirebaseStorage();
-      }
-    } catch (e) {
-      print("Storage test failed: $e");
-    }
-  }
-
-  // Test standard Firebase Storage
-  Future<void> testFirebaseStorage() async {
-    try {
       print("Testing Firebase Storage connection...");
-      final ref = FirebaseStorage.instance.ref();
-      print("Firebase Storage is ready");
+
+      // Quick test to verify Firebase Storage works
+      final ref = FirebaseStorage.instance.ref().child('test/connection-test.txt');
+      await ref.putString('Firebase Storage is working!');
+      print("Firebase Storage connection successful");
 
       Get.snackbar(
         "Storage Ready",
-        "Image upload is available",
+        "Firebase Storage is working - Image upload available!",
         backgroundColor: Colors.green[100],
         colorText: Colors.green[800],
         duration: Duration(seconds: 2),
@@ -126,21 +77,88 @@ class EditProductController extends GetxController {
       );
     } catch (e) {
       print("Firebase Storage test failed: $e");
+      Get.snackbar(
+        "Storage Issue",
+        "Firebase Storage connection failed. Images may not upload properly.",
+        backgroundColor: Colors.orange[100],
+        colorText: Colors.orange[800],
+        duration: Duration(seconds: 3),
+        snackPosition: SnackPosition.BOTTOM,
+      );
     }
   }
 
-  // Pick image from the source provided
-  Future<void> pickImage(ImageSource source) async {
-    if (_isDesktopPlatform() && source == ImageSource.camera) {
+  // Web-specific image picker
+  Future<void> pickImageWeb() async {
+    try {
+      html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
+      uploadInput.accept = 'image/*';
+      uploadInput.click();
+
+      uploadInput.onChange.listen((e) async {
+        final files = uploadInput.files;
+        if (files != null && files.length == 1) {
+          final file = files[0];
+
+          // Check file size (5MB limit)
+          const maxSize = 5 * 1024 * 1024;
+          if (file.size > maxSize) {
+            Get.snackbar(
+              "File Too Large",
+              "Please select an image smaller than 5MB. Current size: ${(file.size / 1024 / 1024).toStringAsFixed(1)}MB",
+              backgroundColor: Colors.orange,
+              colorText: Colors.white,
+              duration: Duration(seconds: 3),
+            );
+            return;
+          }
+
+          // Create XFile-like object for compatibility
+          final bytes = await _readFileAsBytes(file);
+          final tempXFile = XFile.fromData(bytes, name: file.name);
+
+          selectedImage.value = tempXFile;
+          print("Image selected: ${file.name} (${(file.size / 1024).toStringAsFixed(1)} KB)");
+
+          Get.snackbar(
+            "Success",
+            "Image selected: ${file.name}",
+            backgroundColor: Colors.green,
+            colorText: Colors.white,
+            duration: Duration(seconds: 2),
+          );
+        }
+      });
+    } catch (e) {
+      print("Error picking image: $e");
       Get.snackbar(
-        "Unsupported Action",
-        "Camera is not available on desktop platforms.",
-        backgroundColor: Colors.orange,
+        "Error",
+        "Failed to pick image: ${e.toString()}",
+        backgroundColor: Colors.red,
         colorText: Colors.white,
       );
-      return;
     }
+  }
 
+  // Helper method to read file bytes for web
+  Future<Uint8List> _readFileAsBytes(html.File file) async {
+    final completer = Completer<Uint8List>();
+    final reader = html.FileReader();
+
+    reader.onLoad.listen((_) {
+      completer.complete(reader.result as Uint8List);
+    });
+
+    reader.onError.listen((error) {
+      completer.completeError(error);
+    });
+
+    reader.readAsArrayBuffer(file);
+    return completer.future;
+  }
+
+  // Mobile/Desktop image picker (existing functionality)
+  Future<void> pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(
@@ -187,146 +205,8 @@ class EditProductController extends GetxController {
     }
   }
 
-  // Main upload method that chooses the right approach
-  Future<String> uploadImage() async {
-    if (selectedImage.value == null) return '';
-
-    if (_isDesktopPlatform()) {
-      return await uploadViaCloudFunction();
-    } else {
-      return await uploadViaFirebaseStorageWithTimeout();
-    }
-  }
-
-  // Cloud Function upload method
-  Future<String> uploadViaCloudFunction() async {
-    if (selectedImage.value == null) return '';
-
-    try {
-      print("Starting Cloud Function upload...");
-
-      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
-      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
-
-      const maxSize = 5 * 1024 * 1024;
-      if (imageBytes.length > maxSize) {
-        throw Exception("Image too large. Maximum size is 5MB");
-      }
-
-      final String base64Image = base64Encode(imageBytes);
-      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      print("Uploading to Cloud Function: $CLOUD_FUNCTION_URL");
-
-      final response = await http.post(
-        Uri.parse(CLOUD_FUNCTION_URL),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'imageBase64': base64Image,
-          'fileName': fileName,
-          'productId': '',
-        }),
-      ).timeout(
-        Duration(seconds: 120),
-        onTimeout: () {
-          throw Exception('Upload timeout - please check your connection');
-        },
-      );
-
-      print("Cloud Function response status: ${response.statusCode}");
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data['success'] == true) {
-          final String imageUrl = data['url'] ?? '';
-          print("Cloud upload successful: $imageUrl");
-          return imageUrl;
-        } else {
-          throw Exception(data['error'] ?? 'Upload failed');
-        }
-      } else {
-        String errorMessage = 'Server error: ${response.statusCode}';
-        try {
-          final errorData = jsonDecode(response.body);
-          errorMessage = errorData['error'] ?? errorMessage;
-        } catch (e) {
-          // Use default error message
-        }
-        throw Exception(errorMessage);
-      }
-
-    } catch (e) {
-      print("Cloud function upload failed: $e");
-
-      if (e.toString().contains('timeout')) {
-        throw Exception("Upload timed out. Please check your internet connection.");
-      } else if (e.toString().contains('SocketException')) {
-        throw Exception("Network error. Please check your internet connection.");
-      } else {
-        throw Exception("Cloud upload failed: ${e.toString()}");
-      }
-    }
-  }
-
-  // Firebase Storage upload with timeout
-  Future<String> uploadViaFirebaseStorageWithTimeout() async {
-    if (selectedImage.value == null) return '';
-
-    try {
-      print("Starting Firebase Storage upload...");
-
-      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
-      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
-
-      const maxSize = 5 * 1024 * 1024;
-      if (imageBytes.length > maxSize) {
-        throw Exception("Image too large. Maximum size is 5MB");
-      }
-
-      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final Reference storageRef = FirebaseStorage.instance
-          .ref()
-          .child('products')
-          .child(fileName);
-
-      final UploadTask uploadTask = storageRef.putData(
-        imageBytes,
-        SettableMetadata(
-          contentType: 'image/jpeg',
-          cacheControl: 'public, max-age=3600',
-        ),
-      );
-
-      final TaskSnapshot snapshot = await uploadTask.timeout(
-        Duration(seconds: 60),
-        onTimeout: () {
-          uploadTask.cancel();
-          throw TimeoutException('Upload timeout after 60 seconds', Duration(seconds: 60));
-        },
-      );
-
-      final String downloadURL = await snapshot.ref.getDownloadURL();
-      print("Firebase Storage upload successful: $downloadURL");
-      return downloadURL;
-
-    } catch (e) {
-      print("Firebase Storage upload failed: $e");
-
-      if (_isDesktopPlatform()) {
-        print("Fallback: Trying cloud function after Firebase failure");
-        return await uploadViaCloudFunction();
-      }
-
-      throw Exception("Storage upload failed: ${e.toString()}");
-    }
-  }
-
-  // Standard Firebase Storage upload (legacy method)
-  Future<String> uploadViaFirebaseStorage() async {
+  // Firebase Storage upload (this is the method that works!)
+  Future<String> uploadImageToFirebase() async {
     if (selectedImage.value == null) return '';
 
     try {
@@ -356,15 +236,73 @@ class EditProductController extends GetxController {
         ),
       );
 
-      final TaskSnapshot snapshot = await uploadTask;
-      final String downloadURL = await snapshot.ref.getDownloadURL();
+      // Add timeout for upload
+      final TaskSnapshot snapshot = await uploadTask.timeout(
+        Duration(seconds: 60),
+        onTimeout: () {
+          uploadTask.cancel();
+          throw TimeoutException('Upload timeout after 60 seconds', Duration(seconds: 60));
+        },
+      );
 
+      final String downloadURL = await snapshot.ref.getDownloadURL();
       print("Firebase Storage upload successful: $downloadURL");
       return downloadURL;
 
     } catch (e) {
       print("Firebase Storage upload failed: $e");
-      throw Exception("Storage upload failed: ${e.toString()}");
+      throw Exception("Firebase Storage upload failed: ${e.toString()}");
+    }
+  }
+
+  // Web-specific upload using blob (for better web compatibility)
+  Future<String> uploadImageWebBlob() async {
+    if (selectedImage.value == null) return '';
+
+    try {
+      print("Starting web blob upload to Firebase Storage...");
+
+      final Uint8List imageBytes = await selectedImage.value!.readAsBytes();
+      print("Image size: ${(imageBytes.length / 1024).toStringAsFixed(1)} KB");
+
+      final String fileName = 'product_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final Reference storageRef = FirebaseStorage.instance
+          .ref()
+          .child('products')
+          .child(fileName);
+
+      // Create blob for web upload
+      final html.Blob blob = html.Blob([imageBytes]);
+      final UploadTask uploadTask = storageRef.putBlob(blob);
+
+      final TaskSnapshot snapshot = await uploadTask.timeout(
+        Duration(seconds: 60),
+        onTimeout: () {
+          uploadTask.cancel();
+          throw TimeoutException('Upload timeout after 60 seconds', Duration(seconds: 60));
+        },
+      );
+
+      final String downloadURL = await snapshot.ref.getDownloadURL();
+      print("Web blob upload successful: $downloadURL");
+      return downloadURL;
+
+    } catch (e) {
+      print("Web blob upload failed: $e");
+      throw Exception("Web upload failed: ${e.toString()}");
+    }
+  }
+
+  // Main upload method that chooses the best approach
+  Future<String> uploadImage() async {
+    if (selectedImage.value == null) return '';
+
+    if (kIsWeb) {
+      // Use blob upload for web (better compatibility)
+      return await uploadImageWebBlob();
+    } else {
+      // Use standard upload for mobile/desktop
+      return await uploadImageToFirebase();
     }
   }
 
@@ -374,18 +312,18 @@ class EditProductController extends GetxController {
 
     try {
       // Basic validation
-      // if (productName.text.trim().isEmpty || productPrice.text.trim().isEmpty) {
-      //   Get.snackbar(
-      //     "Validation Error",
-      //     "Please fill in Product Name and Price",
-      //     backgroundColor: Colors.orange,
-      //     colorText: Colors.white,
-      //     snackPosition: SnackPosition.TOP,
-      //   );
-      //   return;
-      // }
+      if (productName.text.trim().isEmpty || productPrice.text.trim().isEmpty) {
+        Get.snackbar(
+          "Validation Error",
+          "Please fill in Product Name and Price",
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+          snackPosition: SnackPosition.TOP,
+        );
+        return;
+      }
 
-     // if (shopId.text.trim().isEmpty) {
+      // if (shopId.text.trim().isEmpty) {
       //   Get.snackbar(
       //     "Validation Error",
       //     "Please select a shop",
@@ -394,7 +332,7 @@ class EditProductController extends GetxController {
       //     snackPosition: SnackPosition.TOP,
       //   );
       //   return;
-      // }`
+      // }
 
       // Get zone data
       final prefs = await SharedPreferences.getInstance();
@@ -409,10 +347,7 @@ class EditProductController extends GetxController {
       String loadingTitle = "Adding Product...";
       String loadingMessage = "Please wait...";
 
-      if (_isDesktopPlatform() && selectedImage.value != null) {
-        loadingTitle = "Uploading via Cloud Function...";
-        loadingMessage = "This may take up to 2 minutes for large images";
-      } else if (selectedImage.value != null) {
+      if (selectedImage.value != null) {
         loadingTitle = "Uploading Image...";
         loadingMessage = "This may take a few moments";
       }
@@ -546,6 +481,7 @@ class EditProductController extends GetxController {
             return;
           }
 
+          // Show loading again for saving without image
           Get.dialog(
             WillPopScope(
               onWillPop: () async => false,
@@ -599,9 +535,9 @@ class EditProductController extends GetxController {
         'needsImage': imageUrl.isEmpty,
         'createdAt': FieldValue.serverTimestamp(),
         'createdAtFormatted': formattedDate,
-        'platform': _getPlatformName(),
+        'platform': kIsWeb ? 'web' : 'mobile',
         'status': 'Paused',
-        'uploadMethod': imageUrl.isNotEmpty ? _getUploadMethod() : 'none',
+        'uploadMethod': imageUrl.isNotEmpty ? 'firebase_storage' : 'none',
       };
 
       final DocumentReference docRef = await FirebaseFirestore.instance
@@ -652,50 +588,6 @@ class EditProductController extends GetxController {
         duration: Duration(seconds: 5),
         snackPosition: SnackPosition.TOP,
       );
-    }
-  }
-
-  // Helper methods
-  String _getPlatformName() {
-    if (kIsWeb) return 'web';
-    if (!kIsWeb) {
-      if (Platform.isWindows) return 'windows';
-      if (Platform.isLinux) return 'linux';
-      if (Platform.isMacOS) return 'macos';
-      if (Platform.isAndroid) return 'android';
-      if (Platform.isIOS) return 'ios';
-    }
-    return 'unknown';
-  }
-
-  String _getUploadMethod() {
-    return _isDesktopPlatform() ? 'cloud_function' : 'firebase_storage';
-  }
-
-  String _getPlatformMessage() {
-    if (_isDesktopPlatform()) {
-      return "Using Cloud Function upload\nThis may take up to 2 minutes";
-    } else {
-      return "This may take a few moments";
-    }
-  }
-
-  // Ensure connection stability
-  Future<void> ensureConnectionStability() async {
-    if (_isDesktopPlatform()) {
-      print("Ensuring connection stability...");
-      await Future.delayed(Duration(milliseconds: 500));
-
-      try {
-        await FirebaseFirestore.instance
-            .collection('test')
-            .doc('ping')
-            .get(GetOptions(source: Source.server))
-            .timeout(Duration(seconds: 5));
-        print("Firebase connection stable");
-      } catch (e) {
-        print("Connection test failed: $e");
-      }
     }
   }
 

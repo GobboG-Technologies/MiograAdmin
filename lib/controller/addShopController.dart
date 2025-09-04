@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -12,7 +12,8 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-
+// Only import dart:html when on web
+import 'dart:html' as html show FileUploadInputElement, FileReader, Blob, File;
 
 // A helper class for managing file data for both web and mobile
 class DocFile {
@@ -23,7 +24,6 @@ class DocFile {
   DocFile({required this.name, this.path, this.bytes});
 }
 
-
 class AddShopController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -32,7 +32,6 @@ class AddShopController extends GetxController {
   // Mode management
   var isEditMode = false.obs;
   String? currentShopId;
-
 
   // Loading State
   var isLoading = false.obs;
@@ -66,7 +65,6 @@ class AddShopController extends GetxController {
   var customerZone = "".obs;
   var deliveryZone = "".obs;
   Map<String, dynamic>? selectedDeliveryZoneData;
-
 
   // Categories - Aligned with Business App
   final List<String> allCategories = ['Fresh Cut', 'Food', 'Daily Mio'];
@@ -103,11 +101,30 @@ class AddShopController extends GetxController {
   var existingDocs = <String, String>{}.obs; // For displaying existing docs
   final List<String> docTypes = ['Aadhar', 'Pan', 'Driving License', 'Bank Passbook'];
 
-
   @override
   void onInit() {
     super.onInit();
     fetchZones();
+    testFirebaseStorageConnection();
+  }
+
+  // Test Firebase Storage connection
+  Future<void> testFirebaseStorageConnection() async {
+    try {
+      print("Testing Firebase Storage connection for shop uploads...");
+      final ref = FirebaseStorage.instance.ref().child('test/shop-connection-test.txt');
+      await ref.putString('Firebase Storage working for shops!');
+      print("Firebase Storage connection successful for shops");
+    } catch (e) {
+      print("Firebase Storage test failed for shops: $e");
+      Get.snackbar(
+        "Storage Warning",
+        "Firebase Storage connection issue. Images may not upload properly.",
+        backgroundColor: Colors.orange[100],
+        colorText: Colors.orange[800],
+        duration: Duration(seconds: 3),
+      );
+    }
   }
 
   // ✅ NEW: Initializes the controller for editing an existing shop
@@ -116,7 +133,6 @@ class AddShopController extends GetxController {
     currentShopId = businessId;
     await loadShopData(businessId);
   }
-
 
   // ✅ NEW: Loads existing data from Firestore into the UI
   Future<void> loadShopData(String businessId) async {
@@ -151,12 +167,10 @@ class AddShopController extends GetxController {
           pinController.text = fullAddress.split("PIN:").last.trim();
         }
 
-
         // Zones
         await fetchZones(); // Ensure zones are loaded before setting values
         customerZone.value = data['customerZone'] ?? '';
         deliveryZone.value = data['deliveryZone'] ?? '';
-
 
         // Location
         selectedLat = data['location']?['latitude']?.toDouble();
@@ -174,7 +188,6 @@ class AddShopController extends GetxController {
         // Time Parsing (from '09:00 AM' format)
         openTime.value = _parseTime(data['openTime']) ?? const TimeOfDay(hour: 9, minute: 0);
         closeTime.value = _parseTime(data['closeTime']) ?? const TimeOfDay(hour: 22, minute: 0);
-
       }
     } catch (e) {
       Get.snackbar("Error", "Failed to load shop data: $e",
@@ -183,7 +196,6 @@ class AddShopController extends GetxController {
       isLoading.value = false;
     }
   }
-
 
   Future<void> fetchZones() async {
     try {
@@ -198,7 +210,6 @@ class AddShopController extends GetxController {
 
       availableZoneData.assignAll(zones);
       zoneNames.assignAll(zones.map((z) => z['zone'].toString()).toList());
-
     } catch (e) {
       Get.snackbar('Error Fetching Zones', 'Could not retrieve zone list: $e',
           backgroundColor: Colors.red, colorText: Colors.white);
@@ -217,18 +228,141 @@ class AddShopController extends GetxController {
     );
   }
 
-  // Pickers
+  // Enhanced Image Picker with Firebase Storage support
   Future<void> pickProfileImage() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (picked != null) {
-      profileImage.value = picked;
-      networkImage.value = null; // Clear network image when a new one is picked
+    if (kIsWeb) {
+      await pickImageWeb();
+    } else {
+      await pickImageMobile();
     }
+  }
+
+  // Web-specific image picker
+  Future<void> pickImageWeb() async {
+    if (!kIsWeb) return;
+
+    try {
+      html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
+      uploadInput.accept = 'image/*';
+      uploadInput.click();
+
+      uploadInput.onChange.listen((e) async {
+        final files = uploadInput.files;
+        if (files != null && files.length == 1) {
+          final file = files[0];
+
+          // Check file size (5MB limit)
+          const maxSize = 5 * 1024 * 1024;
+          if (file.size > maxSize) {
+            Get.snackbar(
+              "File Too Large",
+              "Please select an image smaller than 5MB. Current size: ${(file.size / 1024 / 1024).toStringAsFixed(1)}MB",
+              backgroundColor: Colors.orange,
+              colorText: Colors.white,
+              duration: Duration(seconds: 3),
+            );
+            return;
+          }
+
+          // Create XFile-like object for compatibility
+          final bytes = await _readFileAsBytes(file);
+          final tempXFile = XFile.fromData(bytes, name: file.name);
+
+          profileImage.value = tempXFile;
+          networkImage.value = null; // Clear network image when new one is picked
+
+          print("Image selected: ${file.name} (${(file.size / 1024).toStringAsFixed(1)} KB)");
+
+          Get.snackbar(
+            "Success",
+            "Image selected: ${file.name}",
+            backgroundColor: Colors.green,
+            colorText: Colors.white,
+            duration: Duration(seconds: 2),
+          );
+        }
+      });
+    } catch (e) {
+      print("Error picking image: $e");
+      Get.snackbar(
+        "Error",
+        "Failed to pick image: ${e.toString()}",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  // Mobile image picker
+  Future<void> pickImageMobile() async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
+
+      if (picked != null) {
+        final bytes = await picked.readAsBytes();
+        const maxSize = 5 * 1024 * 1024; // 5MB limit
+
+        if (bytes.length > maxSize) {
+          Get.snackbar(
+            "File Too Large",
+            "Please select an image smaller than 5MB. Current size: ${(bytes.length / 1024 / 1024).toStringAsFixed(1)}MB",
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+            duration: Duration(seconds: 3),
+          );
+          return;
+        }
+
+        profileImage.value = picked;
+        networkImage.value = null; // Clear network image when new one is picked
+
+        Get.snackbar(
+          "Success",
+          "Image selected: ${picked.name}",
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          duration: Duration(seconds: 2),
+        );
+      }
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "Failed to pick image: ${e.toString()}",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  // Helper method to read file bytes for web
+  Future<Uint8List> _readFileAsBytes(html.File file) async {
+    if (!kIsWeb) throw UnsupportedError('This method is only supported on web');
+
+    final completer = Completer<Uint8List>();
+    final reader = html.FileReader();
+
+    reader.onLoad.listen((_) {
+      completer.complete(reader.result as Uint8List);
+    });
+
+    reader.onError.listen((error) {
+      completer.completeError(error);
+    });
+
+    reader.readAsArrayBuffer(file);
+    return completer.future;
   }
 
   Future<void> pickPdfFile(String docType) async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom, allowedExtensions: ['pdf'], withData: kIsWeb,
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      withData: kIsWeb,
     );
     if (result != null && result.files.isNotEmpty) {
       final file = result.files.first;
@@ -259,15 +393,38 @@ class AddShopController extends GetxController {
     }
   }
 
-
+  // Enhanced Firebase Storage upload method
   Future<String?> _uploadFile(String path, {String? filePath, Uint8List? bytes}) async {
     try {
+      print("Starting Firebase Storage upload: $path");
+
       final ref = _storage.ref().child(path);
-      UploadTask task = kIsWeb ? ref.putData(bytes!) : ref.putFile(File(filePath!));
-      final snap = await task;
-      return await snap.ref.getDownloadURL();
+
+      UploadTask task;
+      if (kIsWeb) {
+        // Use blob upload for web
+        final blob = html.Blob([bytes!]);
+        task = ref.putBlob(blob);
+      } else {
+        // Use file upload for mobile/desktop
+        task = ref.putFile(File(filePath!));
+      }
+
+      final snap = await task.timeout(
+        Duration(seconds: 60),
+        onTimeout: () {
+          task.cancel();
+          throw TimeoutException('Upload timeout after 60 seconds', Duration(seconds: 60));
+        },
+      );
+
+      final downloadURL = await snap.ref.getDownloadURL();
+      print("Firebase Storage upload successful: $downloadURL");
+      return downloadURL;
     } catch (e) {
-      Get.snackbar("Upload Error", "Failed to upload file: $e");
+      print("Firebase Storage upload failed: $e");
+      Get.snackbar("Upload Error", "Failed to upload file: $e",
+          backgroundColor: Colors.red, colorText: Colors.white);
       return null;
     }
   }
@@ -298,11 +455,11 @@ class AddShopController extends GetxController {
     }
   }
 
-
   Future<void> addShop() async {
     // Basic validation
     if (BusinessNameController.text.isEmpty || contactController.text.isEmpty) {
-      Get.snackbar("Validation", "Business name & contact required", backgroundColor: Colors.red, colorText: Colors.white);
+      Get.snackbar("Validation", "Business name & contact required",
+          backgroundColor: Colors.red, colorText: Colors.white);
       return;
     }
 
@@ -315,10 +472,11 @@ class AddShopController extends GetxController {
       String? profileUrl;
       if (profileImage.value != null) {
         final img = profileImage.value!;
+        final bytes = await img.readAsBytes();
         profileUrl = await _uploadFile(
           "Business/$userEmail/Shops/$shopId/profile.jpg",
           filePath: kIsWeb ? null : img.path,
-          bytes: kIsWeb ? await img.readAsBytes() : null,
+          bytes: kIsWeb ? bytes : null,
         );
       }
 
@@ -342,10 +500,9 @@ class AddShopController extends GetxController {
       businessData['id'] = userEmail;
       businessData['addedBy'] = userEmail;
       businessData['status'] = "Pending";
-
-      // ✅ UPDATED: Storing the generated shopId inside the document as well
       businessData['shopId'] = shopId;
-
+      businessData['uploadMethod'] = profileUrl != null ? 'firebase_storage' : 'none';
+      businessData['platform'] = kIsWeb ? 'web' : 'mobile';
 
       WriteBatch batch = _firestore.batch();
       final businessShopRef = _firestore.collection("Business").doc(userEmail).collection("Shops").doc(shopId);
@@ -354,16 +511,17 @@ class AddShopController extends GetxController {
       batch.set(globalShopRef, businessData);
       await batch.commit();
 
-      Get.snackbar("Success", "Shop added successfully!", backgroundColor: Colors.green, colorText: Colors.white);
+      Get.snackbar("Success", "Shop added successfully!",
+          backgroundColor: Colors.green, colorText: Colors.white);
       clearAllFields();
       Get.back();
     } catch (e) {
-      Get.snackbar("Error", "Failed to add shop: $e", backgroundColor: Colors.red, colorText: Colors.white);
+      Get.snackbar("Error", "Failed to add shop: $e",
+          backgroundColor: Colors.red, colorText: Colors.white);
     } finally {
       isLoading.value = false;
     }
   }
-
 
   // ✅ NEW: Updates an existing shop document
   Future<void> updateShop(String businessId) async {
@@ -374,10 +532,11 @@ class AddShopController extends GetxController {
       String? profileUrl = networkImage.value; // Start with existing image
       if (profileImage.value != null) { // If a new image was picked, upload it
         final img = profileImage.value!;
+        final bytes = await img.readAsBytes();
         profileUrl = await _uploadFile(
           "Business/$userEmail/Shops/$businessId/profile.jpg",
           filePath: kIsWeb ? null : img.path,
-          bytes: kIsWeb ? await img.readAsBytes() : null,
+          bytes: kIsWeb ? bytes : null,
         );
       }
 
@@ -399,6 +558,8 @@ class AddShopController extends GetxController {
       updatedData['profileImage'] = profileUrl;
       updatedData['documents'] = docUrls;
       updatedData['updatedAt'] = FieldValue.serverTimestamp();
+      updatedData['uploadMethod'] = profileUrl != null ? 'firebase_storage' : 'none';
+      updatedData['platform'] = kIsWeb ? 'web' : 'mobile';
 
       WriteBatch batch = _firestore.batch();
       final businessShopRef = _firestore.collection("Business").doc(userEmail).collection("Shops").doc(businessId);
@@ -407,11 +568,13 @@ class AddShopController extends GetxController {
       batch.update(globalShopRef, updatedData);
       await batch.commit();
 
-      Get.snackbar("Success", "Shop updated successfully!", backgroundColor: Colors.green, colorText: Colors.white);
+      Get.snackbar("Success", "Shop updated successfully!",
+          backgroundColor: Colors.green, colorText: Colors.white);
       clearAllFields();
       Get.back();
     } catch (e) {
-      Get.snackbar("Error", "Failed to update shop: $e", backgroundColor: Colors.red, colorText: Colors.white);
+      Get.snackbar("Error", "Failed to update shop: $e",
+          backgroundColor: Colors.red, colorText: Colors.white);
     } finally {
       isLoading.value = false;
     }
@@ -453,7 +616,6 @@ class AddShopController extends GetxController {
     };
   }
 
-
   void clearAllFields() {
     nameController.clear();
     BusinessNameController.clear();
@@ -493,4 +655,3 @@ class AddShopController extends GetxController {
     update();
   }
 }
-

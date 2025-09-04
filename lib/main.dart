@@ -21,7 +21,7 @@ void main() async {
     apiKey: "AIzaSyDB847Vc_EBTexUkiVOHxN5vzmhBRteg4Y",
     authDomain: "migora-f8f57.firebaseapp.com",
     projectId: "migora-f8f57",
-    storageBucket: "migora-f8f57.appspot.com",
+    storageBucket: "migora-f8f57.firebasestorage.app",
     messagingSenderId: "605102255517",
     appId: "1:605102255517:web:f1455bf6ad7256cb401374",
     measurementId: "G-MFMV671N00",
@@ -57,7 +57,6 @@ class MyApp extends StatelessWidget {
 
           // Define app routes
           getPages: [
-            GetPage(name: '/splash', page: () => SplashScreen()),
             GetPage(name: '/splash', page: () => SplashScreen()),
             GetPage(name: '/login', page: () => LoginPage()),
             GetPage(name: '/zone-dashboard', page: () => DashboardScreen()),
